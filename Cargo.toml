@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/surf-core"]
+members = ["crates/surf-core", "crates/surf-credentials"]
 
 [workspace.package]
 version = "0.1.0"
