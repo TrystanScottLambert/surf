@@ -1,0 +1,26 @@
+[package]
+name = "surf-query"
+description = "Parquet metadata, filtered previews and exports for surf, powered by DataFusion."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+surf-core.workspace = true
+surf-storage.workspace = true
+datafusion.workspace = true
+futures.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true
