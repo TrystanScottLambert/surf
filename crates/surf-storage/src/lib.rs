@@ -55,6 +55,19 @@ impl Bucket {
         })
     }
 
+    /// A local folder laid out like the bucket (for development and offline use).
+    pub fn local(root: &std::path::Path) -> Result<Self> {
+        let store = object_store::local::LocalFileSystem::new_with_prefix(root)?;
+        Ok(Bucket {
+            store: Arc::new(store),
+            name: root
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            url: "local://surf".to_owned(),
+        })
+    }
+
     /// Wrap an arbitrary store (used by tests). `url` must be a URL the query
     /// engine can register the store under, e.g. `memory://`.
     pub fn from_store(

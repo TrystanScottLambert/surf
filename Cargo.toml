@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/surf-core", "crates/surf-credentials", "crates/surf-storage", "crates/surf-query"]
+members = ["crates/surf-core", "crates/surf-credentials", "crates/surf-storage", "crates/surf-query", "crates/surf-gui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,7 +8,7 @@ edition = "2024"
 license = "MIT"
 authors = ["Trystan Scott Lambert"]
 repository = "https://github.com/TrystanScottLambert/surf"
-rust-version = "1.85"
+rust-version = "1.94"
 
 [workspace.dependencies]
 surf-core = { path = "crates/surf-core" }
@@ -41,3 +41,7 @@ all = { level = "warn", priority = -1 }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[profile.dev]
+# Full debug info for DataFusion makes huge binaries; line tables are enough for backtraces.
+debug = "line-tables-only"

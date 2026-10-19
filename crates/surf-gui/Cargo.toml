@@ -1,0 +1,31 @@
+[package]
+name = "surf-gui"
+description = "Surf: browse, filter and download WAVES data products from R2."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "surf"
+path = "src/main.rs"
+
+[dependencies]
+surf-core.workspace = true
+surf-credentials.workspace = true
+surf-storage.workspace = true
+surf-query.workspace = true
+iced.workspace = true
+rfd.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+directories.workspace = true
+open = "5"
+
+[lints]
+workspace = true

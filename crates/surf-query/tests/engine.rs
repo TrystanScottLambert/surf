@@ -274,3 +274,19 @@ async fn exports_parquet_with_maml_and_csv() {
     assert_eq!(lines.count(), 499);
     assert!(!dir.path().join("out.csv.part").exists());
 }
+
+#[tokio::test]
+async fn works_against_a_local_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(KEY);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, fixture_bytes()).unwrap();
+    let e = Engine::new(Bucket::local(dir.path()).unwrap()).unwrap();
+    let listing = e.bucket().list_dir("groups/").await.unwrap();
+    assert_eq!(listing.entries[0].name, "v1");
+    let sel = filters(
+        Combinator::And,
+        vec![Filter::new("dec", Op::Gt).with_values("0", "")],
+    );
+    assert_eq!(e.preview(KEY, &sel, 1).await.unwrap().matching_rows, 499);
+}
