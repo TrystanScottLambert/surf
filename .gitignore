@@ -1,0 +1,9 @@
+/target
+# Credentials: never commit
+.env
+.env.*
+!.env.example
+# Local exports / scratch
+*.parquet
+*.csv
+.DS_Store
