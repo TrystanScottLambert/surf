@@ -1,0 +1,25 @@
+[package]
+name = "surf-storage"
+description = "Read-only access to the surf R2 bucket via object_store."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+surf-core.workspace = true
+object_store.workspace = true
+futures.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+surf-credentials.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

@@ -11,7 +11,8 @@ use std::fmt::Write as _;
 use std::hash::{BuildHasher, Hasher};
 use std::path::PathBuf;
 
-const VARS: [(&str, &str); 4] = [
+const VARS: [(&str, &str); 5] = [
+    ("SURF_R2_ENDPOINT", "ENDPOINT"),
     ("SURF_R2_ACCOUNT_ID", "ACCOUNT_ID"),
     ("SURF_R2_ACCESS_KEY_ID", "ACCESS_KEY_ID"),
     ("SURF_R2_SECRET_ACCESS_KEY", "SECRET_ACCESS_KEY"),
@@ -43,11 +44,22 @@ fn main() {
     };
 
     let mut missing = Vec::new();
+    // The endpoint can be given directly, or derived from the account ID.
+    let endpoint = lookup("SURF_R2_ENDPOINT")
+        .map(|e| e.trim_matches(['"', '\'']).trim_end_matches('/').to_owned())
+        .or_else(|| {
+            lookup("SURF_R2_ACCOUNT_ID").map(|id| format!("https://{id}.r2.cloudflarestorage.com"))
+        });
     let mut values = Vec::new();
-    for (var, name) in VARS {
+    match endpoint {
+        Some(e) if e.starts_with("https://") => values.push(("ENDPOINT", e)),
+        Some(_) => panic!("\n\nSURF_R2_ENDPOINT must start with https://\n\n"),
+        None => missing.push("SURF_R2_ENDPOINT (or SURF_R2_ACCOUNT_ID)"),
+    }
+    for (var, name) in &VARS[2..] {
         match lookup(var) {
-            Some(v) => values.push((name, v)),
-            None if var == "SURF_R2_BUCKET" => values.push((name, "waves-rips".to_owned())),
+            Some(v) => values.push((name, v.trim_matches(['"', '\'']).to_owned())),
+            None if *var == "SURF_R2_BUCKET" => values.push((name, "waves-rips".to_owned())),
             None => missing.push(var),
         }
     }

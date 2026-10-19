@@ -10,7 +10,8 @@ include!(concat!(env!("OUT_DIR"), "/embedded.rs"));
 /// The credentials compiled into this binary.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Credentials {
-    pub account_id: String,
+    /// S3-compatible endpoint, e.g. `https://<account>.r2.cloudflarestorage.com`.
+    pub endpoint: String,
     pub access_key_id: String,
     pub secret_access_key: String,
     pub bucket: String,
@@ -19,7 +20,7 @@ pub struct Credentials {
 impl fmt::Debug for Credentials {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Credentials")
-            .field("account_id", &self.account_id)
+            .field("endpoint", &self.endpoint)
             .field("access_key_id", &"<redacted>")
             .field("secret_access_key", &"<redacted>")
             .field("bucket", &self.bucket)
@@ -30,7 +31,7 @@ impl fmt::Debug for Credentials {
 /// Decode the embedded credentials.
 pub fn embedded() -> Credentials {
     Credentials {
-        account_id: unmask(&ACCOUNT_ID, &KEY),
+        endpoint: unmask(&ENDPOINT, &KEY),
         access_key_id: unmask(&ACCESS_KEY_ID, &KEY),
         secret_access_key: unmask(&SECRET_ACCESS_KEY, &KEY),
         bucket: unmask(&BUCKET, &KEY),
@@ -64,7 +65,7 @@ mod tests {
     #[test]
     fn embedded_values_decode() {
         let c = embedded();
-        assert!(!c.account_id.is_empty());
+        assert!(c.endpoint.starts_with("https://"));
         assert!(!c.bucket.is_empty());
     }
 

@@ -8,7 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # CI builds with dummy credentials; nothing here talks to R2.
-  SURF_R2_ACCOUNT_ID: ci-dummy-account
+  SURF_R2_ENDPOINT: https://ci-dummy.r2.cloudflarestorage.com
   SURF_R2_ACCESS_KEY_ID: ci-dummy-key
   SURF_R2_SECRET_ACCESS_KEY: ci-dummy-secret
   SURF_R2_BUCKET: waves-rips
