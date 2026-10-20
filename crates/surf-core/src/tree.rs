@@ -11,8 +11,14 @@ pub enum EntryKind {
     VersionFolder(Version),
     /// A parquet table.
     Parquet,
-    /// A markdown document.
+    /// A markdown document (a version's description).
     Markdown,
+    /// A `.daml` YAML file describing a dataset version.
+    DatasetMeta,
+    /// A `.checksums` file listing SHA-1 sums of a version's files.
+    Checksums,
+    /// A `.maml` YAML file describing one table.
+    TableMeta,
     /// Anything else.
     Other,
 }
@@ -20,6 +26,38 @@ pub enum EntryKind {
 impl EntryKind {
     pub fn is_folder(self) -> bool {
         matches!(self, EntryKind::Folder | EntryKind::VersionFolder(_))
+    }
+
+    /// Whether the entry belongs in the file tree. Description, metadata and
+    /// checksum files are shown on the version page instead.
+    pub fn is_tree_visible(self) -> bool {
+        self.is_folder() || self == EntryKind::Parquet
+    }
+
+    /// Classify a file name by its extension.
+    pub fn of_file(key: &str) -> EntryKind {
+        match extension(key).as_deref() {
+            Some("parquet") => EntryKind::Parquet,
+            Some("md" | "markdown") => EntryKind::Markdown,
+            Some("daml") => EntryKind::DatasetMeta,
+            Some("checksums") => EntryKind::Checksums,
+            Some("maml") => EntryKind::TableMeta,
+            _ => EntryKind::Other,
+        }
+    }
+
+    /// A short, human description of a file kind.
+    pub fn describe(self) -> &'static str {
+        match self {
+            EntryKind::Folder => "Folder",
+            EntryKind::VersionFolder(_) => "Version",
+            EntryKind::Parquet => "Table",
+            EntryKind::Markdown => "Description",
+            EntryKind::DatasetMeta => "Dataset info",
+            EntryKind::Checksums => "Checksums",
+            EntryKind::TableMeta => "Table metadata",
+            EntryKind::Other => "File",
+        }
     }
 }
 
@@ -59,11 +97,7 @@ impl Entry {
     pub fn file(key: impl Into<String>, size: u64) -> Self {
         let key = key.into();
         let name = last_segment(&key).to_owned();
-        let kind = match extension(&key).as_deref() {
-            Some("parquet") => EntryKind::Parquet,
-            Some("md" | "markdown") => EntryKind::Markdown,
-            _ => EntryKind::Other,
-        };
+        let kind = EntryKind::of_file(&key);
         Entry {
             key,
             name,
@@ -91,6 +125,28 @@ impl Listing {
         }
     }
 
+    /// The first entry of the given kind.
+    pub fn find(&self, kind: EntryKind) -> Option<&Entry> {
+        self.entries.iter().find(|e| e.kind == kind)
+    }
+
+    /// Entries of the given kind.
+    pub fn of_kind(&self, kind: EntryKind) -> impl Iterator<Item = &Entry> {
+        self.entries.iter().filter(move |e| e.kind == kind)
+    }
+
+    /// The newest version folder in this listing, if any.
+    pub fn latest_version(&self) -> Option<&Entry> {
+        self.entries
+            .iter()
+            .filter_map(|e| match e.kind {
+                EntryKind::VersionFolder(v) => Some((v, e)),
+                _ => None,
+            })
+            .max_by_key(|(v, _)| *v)
+            .map(|(_, e)| e)
+    }
+
     /// The dataset description for a version folder, if present in this listing.
     pub fn readme(&self) -> Option<&Entry> {
         let expected = readme_key_for(&self.prefix);
@@ -105,9 +161,12 @@ fn sort_key(e: &Entry) -> (u8, u32, String) {
     match e.kind {
         EntryKind::VersionFolder(v) => (0, v.0, String::new()),
         EntryKind::Folder => (1, 0, e.name.to_lowercase()),
-        EntryKind::Markdown => (2, 0, e.name.to_lowercase()),
-        EntryKind::Parquet => (3, 0, e.name.to_lowercase()),
-        EntryKind::Other => (4, 0, e.name.to_lowercase()),
+        EntryKind::Parquet => (2, 0, e.name.to_lowercase()),
+        EntryKind::Markdown
+        | EntryKind::DatasetMeta
+        | EntryKind::Checksums
+        | EntryKind::TableMeta
+        | EntryKind::Other => (3, 0, e.name.to_lowercase()),
     }
 }
 
@@ -134,6 +193,47 @@ mod tests {
         assert_eq!(Entry::file("g/v1/a.parquet", 1).kind, EntryKind::Parquet);
         assert_eq!(Entry::file("g/v1/g.md", 1).kind, EntryKind::Markdown);
         assert_eq!(Entry::file("g/v1/x.txt", 1).kind, EntryKind::Other);
+        assert_eq!(Entry::file("g/v1/g.daml", 1).kind, EntryKind::DatasetMeta);
+        assert_eq!(
+            Entry::file("g/v1/g.checksums", 1).kind,
+            EntryKind::Checksums
+        );
+        assert_eq!(Entry::file("g/v1/t.maml", 1).kind, EntryKind::TableMeta);
+    }
+
+    #[test]
+    fn tree_shows_only_folders_and_tables() {
+        assert!(EntryKind::Folder.is_tree_visible());
+        assert!(EntryKind::VersionFolder(Version(1)).is_tree_visible());
+        assert!(EntryKind::Parquet.is_tree_visible());
+        for hidden in [
+            EntryKind::Markdown,
+            EntryKind::DatasetMeta,
+            EntryKind::Checksums,
+            EntryKind::TableMeta,
+            EntryKind::Other,
+        ] {
+            assert!(!hidden.is_tree_visible());
+        }
+    }
+
+    #[test]
+    fn finds_latest_version() {
+        let l = Listing::new(
+            "d/",
+            vec![
+                Entry::folder("d/v2/"),
+                Entry::folder("d/v10/"),
+                Entry::folder("d/v9/"),
+                Entry::folder("d/misc/"),
+            ],
+        );
+        assert_eq!(l.latest_version().unwrap().name, "v10");
+        assert!(
+            Listing::new("d/", vec![Entry::folder("d/misc/")])
+                .latest_version()
+                .is_none()
+        );
     }
 
     #[test]
@@ -148,7 +248,7 @@ mod tests {
             ],
         );
         let names: Vec<_> = l.entries.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, ["v2", "v10", "a.md", "z.parquet"]);
+        assert_eq!(names, ["v2", "v10", "z.parquet", "a.md"]);
     }
 
     #[test]
