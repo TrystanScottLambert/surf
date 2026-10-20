@@ -1,12 +1,15 @@
 //! The downloads panel: running jobs with progress, cancel and "show in folder".
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use futures::SinkExt;
 use iced::task::Handle;
 use iced::widget::{button, column, progress_bar, row, scrollable, text};
 use iced::{Element, Length, Task};
 use surf_core::{ExportFormat, Selection, suggested_file_name};
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 use crate::services::Services;
 use crate::widgets::{self, BOLD, human_bytes, human_count};
@@ -43,6 +46,18 @@ impl Request {
             Request::Object { .. } => ExportFormat::Parquet,
             Request::Subset { format, .. } => *format,
         }
+    }
+}
+
+/// How often the UI is told about a running transfer's progress.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
+
+/// Aborts the spawned transfer when dropped (e.g. when the user cancels).
+struct AbortOnDrop<T>(JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -113,37 +128,53 @@ impl Downloads {
         };
         tracing::info!(id, ?request, dest = %dest.display(), "starting download");
 
+        // The transfer runs in its own task and only records its latest
+        // progress; the UI samples it a few times a second. A busy UI can
+        // never slow the transfer down.
+        let (progress_tx, mut progress_rx) = watch::channel((0u64, total));
         let target = dest.clone();
+        let transfer = AbortOnDrop(tokio::spawn(async move {
+            match request {
+                Request::Object { key, .. } => engine
+                    .bucket()
+                    .download(&key, &target, |done, total| {
+                        progress_tx.send_replace((done, Some(total)));
+                    })
+                    .await
+                    .map_err(|e| e.to_string()),
+                Request::Subset {
+                    key,
+                    selection,
+                    format,
+                    ..
+                } => engine
+                    .export(&key, &selection, format, &target, |done| {
+                        progress_tx.send_replace((done, total));
+                    })
+                    .await
+                    .map_err(|e| e.to_string()),
+            }
+        }));
+
         let stream = iced::stream::channel(
-            32,
+            4,
             async move |mut tx: futures::channel::mpsc::Sender<Event>| {
-                // Progress is best-effort (try_send drops updates if the UI is behind);
-                // the final result is always delivered.
-                let mut progress = tx.clone();
-                let result = match request {
-                    Request::Object { key, .. } => engine
-                        .bucket()
-                        .download(&key, &target, |done, total| {
-                            let _ = progress.try_send(Event::Progress {
-                                done,
-                                total: Some(total),
-                            });
-                        })
-                        .await
-                        .map_err(|e| e.to_string()),
-                    Request::Subset {
-                        key,
-                        selection,
-                        format,
-                        ..
-                    } => engine
-                        .export(&key, &selection, format, &target, |done| {
-                            let _ = progress.try_send(Event::Progress { done, total });
-                        })
-                        .await
-                        .map_err(|e| e.to_string()),
-                };
-                let _ = tx.send(Event::Finished(result)).await;
+                // Dropping this stream (cancel) drops `transfer`, aborting it.
+                let mut transfer = transfer;
+                let mut tick = tokio::time::interval(PROGRESS_INTERVAL);
+                loop {
+                    tokio::select! {
+                        joined = &mut transfer.0 => {
+                            let result = joined.unwrap_or_else(|e| Err(format!("download stopped: {e}")));
+                            let _ = tx.send(Event::Finished(result)).await;
+                            break;
+                        }
+                        _ = tick.tick() => {
+                            let (done, total) = *progress_rx.borrow_and_update();
+                            let _ = tx.send(Event::Progress { done, total }).await;
+                        }
+                    }
+                }
             },
         );
 

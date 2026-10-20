@@ -20,7 +20,7 @@ datafusion = { version = "55", default-features = false, features = ["parquet", 
 object_store = { version = "0.13", features = ["aws"] }
 iced = { version = "0.14", features = ["markdown", "highlighter", "tokio", "advanced"] }
 rfd = "0.17"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
 futures = "0.3"
 bytes = "1"
 thiserror = "2"
@@ -45,3 +45,8 @@ strip = true
 [profile.dev]
 # Full debug info for DataFusion makes huge binaries; line tables are enough for backtraces.
 debug = "line-tables-only"
+
+# Dependencies (DataFusion, TLS, iced) are optimised even in dev builds so
+# `cargo run` without `--release` is usable; our own crates stay quick to build.
+[profile.dev.package."*"]
+opt-level = 3
