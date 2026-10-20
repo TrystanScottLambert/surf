@@ -3,10 +3,11 @@
 
 use std::path::PathBuf;
 
-use iced::widget::{button, column, container, row, rule, text};
+use iced::widget::{button, column, container, image, row, rule, text};
 use iced::{Element, Length, Task, Theme};
 use surf_core::{Entry, ExportFormat};
 
+use crate::assets;
 use crate::screens::browser::{self, Browser};
 use crate::screens::downloads::{self, Downloads, Request};
 use crate::screens::table::{self, TableScreen};
@@ -207,6 +208,7 @@ impl App {
 
         let header = container(
             row![
+                image(assets::wave()).height(30),
                 text("Surf").size(20).font(BOLD),
                 widgets::muted("WAVES data browser"),
                 widgets::spacer(),
@@ -224,7 +226,7 @@ impl App {
             .height(Length::Fill);
 
         let main: Element<'_, Message> = match &self.screen {
-            Screen::Welcome => welcome(),
+            Screen::Welcome => welcome(self.dark),
             Screen::Version(a) => {
                 let key = a.key().to_owned();
                 a.view(theme).map(move |m| Message::Version(key.clone(), m))
@@ -256,13 +258,14 @@ impl App {
     }
 }
 
-fn welcome<'a>() -> Element<'a, Message> {
+fn welcome<'a>(dark: bool) -> Element<'a, Message> {
     container(
         column![
+            image(assets::wordmark(dark)).width(460),
             widgets::heading("Welcome to Surf"),
             text("Browse the WAVES data products on the left."),
-            text("• Click a dataset to see its versions (v1, v2, …)."),
-            text("• Click a version to read its description and see its tables."),
+            text("• Click a dataset to open its latest version (v1, v2, …)."),
+            text("• A version page shows its tables, description and dataset info."),
             text("• Click a table to see its columns and metadata, pick the rows and columns you want, and download them."),
         ]
         .spacing(10)

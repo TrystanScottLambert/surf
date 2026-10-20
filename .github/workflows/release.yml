@@ -38,16 +38,9 @@ jobs:
           cargo build --release -p surf-gui --target x86_64-apple-darwin
       - name: Bundle universal Surf.app
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          APP=dist/Surf.app/Contents
-          mkdir -p "$APP/MacOS"
-          lipo -create -output "$APP/MacOS/surf" \
+          packaging/macos/bundle.sh "${GITHUB_REF_NAME#v}" \
             target/aarch64-apple-darwin/release/surf \
             target/x86_64-apple-darwin/release/surf
-          sed "s/__VERSION__/${VERSION}/g" packaging/macos/Info.plist > "$APP/Info.plist"
-          # Ad-hoc signature (no Apple Developer ID): users right-click → Open the first time.
-          codesign --force --deep --sign - dist/Surf.app
-          (cd dist && ditto -c -k --keepParent Surf.app Surf-macos-universal.zip)
       - uses: actions/upload-artifact@v4
         with:
           name: macos

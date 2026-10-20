@@ -1,6 +1,7 @@
 //! Surf: browse, filter and download WAVES data products stored in R2.
 
 mod app;
+mod assets;
 mod screens;
 mod services;
 mod widgets;
@@ -12,6 +13,10 @@ fn main() -> iced::Result {
     iced::application(app::App::new, app::App::update, app::App::view)
         .title(app::App::title)
         .theme(app::App::theme)
+        .window(iced::window::Settings {
+            icon: assets::window_icon(),
+            ..Default::default()
+        })
         .window_size((1280.0, 820.0))
         .centered()
         .run()
