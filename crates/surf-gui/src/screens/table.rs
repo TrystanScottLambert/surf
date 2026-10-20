@@ -87,13 +87,7 @@ impl TableScreen {
             }
             Message::Tab(tab) => {
                 self.tab = tab;
-                // Show a first preview the first time the tab is opened.
-                match (&mut self.query, tab) {
-                    (Some(q), Tab::Select) if q.needs_first_preview() => {
-                        Action::Run(q.preview(services).map(Message::Query))
-                    }
-                    _ => Action::None,
-                }
+                Action::None
             }
             Message::FieldSearch(s) => {
                 self.field_search = s;

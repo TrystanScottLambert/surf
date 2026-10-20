@@ -201,26 +201,6 @@ pub fn maml_fields<'a, M: Clone + 'a>(
     )
 }
 
-/// A grid of string cells, scrollable in both directions.
-pub fn data_grid<'a, M: 'a>(columns: &'a [String], rows: &'a [Vec<String>]) -> Element<'a, M> {
-    let cols = columns.iter().enumerate().map(|(i, name)| {
-        table::column(text(name.as_str()).font(BOLD).size(13), move |r: usize| {
-            text(rows[r].get(i).map(String::as_str).unwrap_or(""))
-                .size(13)
-                .font(MONO)
-        })
-    });
-    let grid = table(cols, 0..rows.len()).padding_x(10).padding_y(4);
-    scrollable(grid)
-        .direction(scrollable::Direction::Both {
-            vertical: scrollable::Scrollbar::default(),
-            horizontal: scrollable::Scrollbar::default(),
-        })
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
-}
-
 /// A label/value pair for stats rows.
 pub fn stat<'a, M: 'a>(label: &'a str, value: String) -> Element<'a, M> {
     column![muted(label), text(value).size(18).font(BOLD)]

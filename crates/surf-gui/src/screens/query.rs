@@ -1,21 +1,19 @@
-//! The "Select & download" tab: column picker, filter builder, advanced SQL,
-//! live preview and subset download.
+//! The "Select & download" tab: column picker, filter builder, advanced SQL
+//! and subset download.
+//!
+//! Nothing here touches the network until the user presses download, because
+//! queries against the bucket cost money.
 
 use std::sync::Arc;
 
-use iced::widget::{
-    button, checkbox, column, container, pick_list, row, scrollable, text, text_input,
-};
+use iced::widget::{button, checkbox, column, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length, Task};
 use surf_core::{ColumnKind, Combinator, ExportFormat, Filter, FilterSet, Op, Selection};
-use surf_query::{Preview, TableInfo};
+use surf_query::TableInfo;
 
 use super::downloads::Request;
 use crate::services::Services;
-use crate::widgets::{self, BOLD, human_count};
-
-/// Rows shown in the preview grid.
-const PREVIEW_ROWS: usize = 100;
+use crate::widgets::{self, human_count};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -30,11 +28,10 @@ pub enum Message {
     FilterValue2(usize, String),
     Combinator(Combinator),
     Advanced(String),
-    RunPreview,
-    PreviewLoaded(u64, Result<Arc<Preview>, String>),
-    CountLoaded(u64, Result<u64, String>),
     Format(ExportFormat),
     DownloadSubset,
+    /// Result of checking the selection against the table before downloading.
+    Validated(Selection, Result<(), String>),
 }
 
 pub enum Action {
@@ -51,23 +48,6 @@ struct FilterRow {
     value2: String,
 }
 
-#[derive(Debug)]
-enum CountState {
-    Idle,
-    Counting,
-    Done(u64),
-    Failed(String),
-}
-
-#[derive(Debug, Default)]
-enum PreviewState {
-    #[default]
-    NotRun,
-    Loading,
-    Ready(Arc<Preview>),
-    Failed(String),
-}
-
 pub struct Query {
     info: Arc<TableInfo>,
     column_names: Vec<String>,
@@ -76,16 +56,11 @@ pub struct Query {
     filters: Vec<FilterRow>,
     combinator: Combinator,
     advanced: String,
-    preview: PreviewState,
-    /// Matching-row count, computed separately because it can be slow on
-    /// very large tables with filters.
-    count: CountState,
-    count_task: Option<iced::task::Handle>,
-    /// Whether the selection changed since the last preview.
-    stale: bool,
-    /// Incremented for every preview request so late results are ignored.
-    generation: u64,
     format: ExportFormat,
+    /// A selection being checked before download.
+    checking: bool,
+    /// Why the last download attempt was refused (e.g. invalid SQL).
+    refused: Option<String>,
 }
 
 impl Query {
@@ -99,17 +74,10 @@ impl Query {
             filters: Vec::new(),
             combinator: Combinator::And,
             advanced: String::new(),
-            preview: PreviewState::NotRun,
-            count: CountState::Idle,
-            count_task: None,
-            stale: false,
-            generation: 0,
             format: ExportFormat::Parquet,
+            checking: false,
+            refused: None,
         }
-    }
-
-    pub fn needs_first_preview(&self) -> bool {
-        matches!(self.preview, PreviewState::NotRun)
     }
 
     /// The current choices as a domain [`Selection`].
@@ -155,49 +123,6 @@ impl Query {
 
     fn kind_of(&self, column: &str) -> Option<ColumnKind> {
         self.info.column(column).map(|c| c.kind)
-    }
-
-    pub fn preview(&mut self, services: &Services) -> Task<Message> {
-        if self.problem().is_some() {
-            return Task::none();
-        }
-        self.generation += 1;
-        self.preview = PreviewState::Loading;
-        self.stale = false;
-        let generation = self.generation;
-        let engine = services.engine.clone();
-        let key = self.info.key.clone();
-        let selection = self.selection();
-        let sample = Task::perform(
-            {
-                let (engine, key, selection) = (engine.clone(), key.clone(), selection.clone());
-                async move {
-                    engine
-                        .sample(&key, &selection, PREVIEW_ROWS)
-                        .await
-                        .map(Arc::new)
-                        .map_err(|e| e.to_string())
-                }
-            },
-            move |result| Message::PreviewLoaded(generation, result),
-        );
-        // A previous, possibly long-running count is no longer wanted.
-        if let Some(handle) = self.count_task.take() {
-            handle.abort();
-        }
-        self.count = CountState::Counting;
-        let (count, handle) = Task::perform(
-            async move {
-                engine
-                    .count(&key, &selection)
-                    .await
-                    .map_err(|e| e.to_string())
-            },
-            move |result| Message::CountLoaded(generation, result),
-        )
-        .abortable();
-        self.count_task = Some(handle);
-        Task::batch([sample, count])
     }
 
     pub fn update(&mut self, services: &Services, message: Message) -> Action {
@@ -246,41 +171,49 @@ impl Query {
                 self.format = f;
                 changed = false;
             }
-            Message::RunPreview => return Action::Run(self.preview(services)),
-            Message::PreviewLoaded(generation, result) => {
-                if generation == self.generation {
-                    self.preview = match result {
-                        Ok(p) => PreviewState::Ready(p),
-                        Err(e) => PreviewState::Failed(e),
-                    };
-                }
-                changed = false;
-            }
-            Message::CountLoaded(generation, result) => {
-                if generation == self.generation {
-                    self.count_task = None;
-                    self.count = match result {
-                        Ok(n) => CountState::Done(n),
-                        Err(e) => CountState::Failed(e),
-                    };
-                }
-                changed = false;
-            }
             Message::DownloadSubset => {
-                let expected_rows = match (&self.count, self.stale) {
-                    (CountState::Done(n), false) => Some(*n),
-                    _ => None,
+                // Plan the query (no data is read) so mistakes in the advanced
+                // condition show up here rather than after choosing a file.
+                self.checking = true;
+                self.refused = None;
+                let engine = services.engine.clone();
+                let key = self.info.key.clone();
+                let selection = self.selection();
+                return Action::Run(Task::perform(
+                    {
+                        let selection = selection.clone();
+                        async move {
+                            engine
+                                .validate(&key, &selection)
+                                .await
+                                .map_err(|e| e.to_string())
+                        }
+                    },
+                    move |result| Message::Validated(selection.clone(), result),
+                ));
+            }
+            Message::Validated(selection, result) => {
+                self.checking = false;
+                // Ignore a result for a selection the user has since changed.
+                if selection != self.selection() {
+                    return Action::None;
+                }
+                return match result {
+                    Ok(()) => Action::Download(Request::Subset {
+                        key: self.info.key.clone(),
+                        selection,
+                        format: self.format,
+                        expected_rows: None,
+                    }),
+                    Err(e) => {
+                        self.refused = Some(e);
+                        Action::None
+                    }
                 };
-                return Action::Download(Request::Subset {
-                    key: self.info.key.clone(),
-                    selection: self.selection(),
-                    format: self.format,
-                    expected_rows,
-                });
             }
         }
         if changed {
-            self.stale = true;
+            self.refused = None;
         }
         Action::None
     }
@@ -292,14 +225,10 @@ impl Query {
 
     pub fn view(&self) -> Element<'_, Message> {
         let left = column![self.view_columns()].width(300).height(Length::Fill);
-        let right = column![
-            self.view_filters(),
-            self.view_actions(),
-            self.view_preview()
-        ]
-        .spacing(14)
-        .width(Length::Fill)
-        .height(Length::Fill);
+        let right = column![self.view_filters(), self.view_summary()]
+            .spacing(14)
+            .width(Length::Fill)
+            .height(Length::Fill);
         row![left, right].spacing(16).height(Length::Fill).into()
     }
 
@@ -427,7 +356,6 @@ impl Query {
                 widgets::muted("Advanced (optional): an SQL condition, combined with the filters above using AND."),
                 text_input("e.g.  dec > 0 AND (mag_r < 19.5 OR z IS NULL)", &self.advanced)
                     .on_input(Message::Advanced)
-                    .on_submit(Message::RunPreview)
                     .font(widgets::MONO),
             ]
             .spacing(4),
@@ -435,72 +363,80 @@ impl Query {
         widgets::card(content)
     }
 
-    fn view_actions(&self) -> Element<'_, Message> {
-        let problem = self.problem();
-        let busy = matches!(self.preview, PreviewState::Loading);
-        let mut line = row![
-            button(text(if busy {
-                "Updating…"
-            } else {
-                "Update preview"
-            }))
-            .on_press_maybe((problem.is_none() && !busy).then_some(Message::RunPreview)),
-            widgets::spacer(),
-            text("Format"),
-            pick_list(ExportFormat::ALL, Some(self.format), Message::Format),
-            button(text("Download selection"))
+    /// A plain-language description of what will be downloaded.
+    fn view_summary(&self) -> Element<'_, Message> {
+        let n_selected = self.selected.iter().filter(|s| **s).count();
+        let n_columns = self.column_names.len();
+        let columns = if n_selected == n_columns {
+            format!("All {n_columns} columns")
+        } else {
+            format!("{n_selected} of {n_columns} columns")
+        };
+        let rows = match self.rows_description() {
+            Some(condition) => format!("Rows where {condition}"),
+            None => "All rows".to_owned(),
+        };
+
+        let problem = self.problem().or_else(|| self.refused.clone());
+        let ready = self.problem().is_none() && !self.checking;
+        let mut content = column![
+            widgets::subheading("Your selection"),
+            text(columns),
+            text(rows),
+            widgets::muted(format!(
+                "The full table has {} rows ({}). Filtering happens while downloading, so only the data you asked for is saved.",
+                human_count(self.info.num_rows),
+                widgets::human_bytes(self.info.size_bytes),
+            )),
+            row![
+                text("Format"),
+                pick_list(ExportFormat::ALL, Some(self.format), Message::Format),
+                button(text(if self.checking {
+                    "Checking…"
+                } else {
+                    "Download selection"
+                }))
                 .style(button::success)
-                .on_press_maybe(problem.is_none().then_some(Message::DownloadSubset)),
+                .on_press_maybe(ready.then_some(Message::DownloadSubset)),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
         ]
-        .spacing(10)
-        .align_y(iced::Alignment::Center);
+        .spacing(8);
         if let Some(p) = problem {
-            line = line.push(text(p).style(text::danger).size(13));
+            content = content.push(text(p).style(text::danger).size(13));
         }
-        line.into()
+        widgets::card(content)
     }
 
-    fn view_preview(&self) -> Element<'_, Message> {
-        let body: Element<'_, Message> = match &self.preview {
-            PreviewState::NotRun => widgets::muted("Press “Update preview” to see matching rows."),
-            PreviewState::Loading => widgets::loading("preview"),
-            PreviewState::Failed(e) => widgets::failed("the preview", e),
-            PreviewState::Ready(p) => {
-                let total = human_count(self.info.num_rows);
-                let shown = p.rows.len() as u64;
-                let mut summary = match &self.count {
-                    CountState::Done(n) => format!("{} of {total} rows match", human_count(*n)),
-                    CountState::Counting => format!("Counting matching rows (of {total})…"),
-                    CountState::Failed(e) => format!("Couldn't count matching rows: {e}"),
-                    CountState::Idle => String::new(),
-                };
-                let more = match self.count {
-                    CountState::Done(n) => shown < n,
-                    _ => shown == PREVIEW_ROWS as u64,
-                };
-                if more {
-                    summary.push_str(&format!(" · showing the first {}", human_count(shown)));
-                } else if shown == 0 {
-                    summary.push_str(" · no rows to show");
-                }
-                let mut header = row![text(summary).font(BOLD)].spacing(10);
-                if self.stale {
-                    header = header
-                        .push(text("(out of date — press Update preview)").style(text::warning));
-                }
-                column![
-                    header,
-                    container(widgets::data_grid(&p.columns, &p.rows)).height(Length::Fill)
-                ]
-                .spacing(8)
-                .height(Length::Fill)
-                .into()
-            }
+    /// The row condition in words, e.g. `dec > 0 AND mag_r < 19`.
+    fn rows_description(&self) -> Option<String> {
+        let joiner = match self.combinator {
+            Combinator::And => " AND ",
+            Combinator::Or => " OR ",
         };
-        container(body)
-            .height(Length::Fill)
-            .width(Length::Fill)
-            .into()
+        let filters: Vec<String> = self
+            .filters
+            .iter()
+            .map(|f| match f.op.arity() {
+                0 => format!("{} {}", f.column, f.op),
+                1 => format!("{} {} {}", f.column, f.op, f.value.trim()),
+                _ => format!(
+                    "{} between {} and {}",
+                    f.column,
+                    f.value.trim(),
+                    f.value2.trim()
+                ),
+            })
+            .collect();
+        let advanced = self.advanced.trim();
+        match (filters.len(), advanced.is_empty()) {
+            (0, true) => None,
+            (0, false) => Some(advanced.to_owned()),
+            (_, true) => Some(filters.join(joiner)),
+            (1, false) => Some(format!("{} AND ({advanced})", filters[0])),
+            (_, false) => Some(format!("({}) AND ({advanced})", filters.join(joiner))),
+        }
     }
 }
 
