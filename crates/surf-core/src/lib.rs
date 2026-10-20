@@ -4,8 +4,8 @@
 //! datasets, versions and tables, and how a user's column/row selection is
 //! represented and validated before any query engine sees it.
 
-pub mod checksums;
 pub mod filter;
+pub mod maml;
 pub mod path;
 pub mod selection;
 pub mod text;
