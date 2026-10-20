@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use iced::widget::{column, container, image, row, rule, text};
-use iced::{Element, Length, Task, Theme};
+use iced::{Element, Length, Subscription, Task, Theme};
 use surf_core::{Entry, ExportFormat};
 
 use crate::assets;
@@ -26,6 +26,9 @@ pub enum Message {
     Downloads(downloads::Message),
     SaveTo(Request, Option<PathBuf>),
     DismissError,
+    /// A window opened. macOS has finished launching by then, so this is
+    /// when the dock icon can be set without being reset to the default.
+    WindowOpened,
 }
 
 enum Screen {
@@ -87,7 +90,16 @@ impl App {
         self.theme.clone()
     }
 
+    pub fn subscription(&self) -> Subscription<Message> {
+        iced::window::open_events().map(|_| Message::WindowOpened)
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Message::WindowOpened = message {
+            #[cfg(target_os = "macos")]
+            crate::dock::set_icon(assets::ICON_PNG);
+            return Task::none();
+        }
         let Ok(services) = &self.services else {
             if let Message::DismissError = message {
                 self.error = None;
@@ -157,6 +169,7 @@ impl App {
                 self.error = None;
                 Task::none()
             }
+            Message::WindowOpened => Task::none(),
         }
     }
 
