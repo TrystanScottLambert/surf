@@ -156,10 +156,7 @@ fn small_table<'a, M: 'a>(t: FieldTable) -> Element<'a, M> {
             move |r: Vec<String>| text(r[i].clone()).size(14),
         )
     });
-    table(columns, t.rows)
-        .padding_x(12)
-        .padding_y(4)
-        .into()
+    table(columns, t.rows).padding_x(12).padding_y(4).into()
 }
 
 /// The MAML `fields` as a searchable, scrollable table.
