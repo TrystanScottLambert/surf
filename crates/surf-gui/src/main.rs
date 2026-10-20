@@ -4,6 +4,7 @@ mod app;
 mod assets;
 mod screens;
 mod services;
+mod theme;
 mod widgets;
 
 fn main() -> iced::Result {

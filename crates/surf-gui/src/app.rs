@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use iced::widget::{button, column, container, image, row, rule, text};
+use iced::widget::{column, container, image, row, rule, text};
 use iced::{Element, Length, Task, Theme};
 use surf_core::{Entry, ExportFormat};
 
@@ -13,6 +13,7 @@ use crate::screens::downloads::{self, Downloads, Request};
 use crate::screens::table::{self, TableScreen};
 use crate::screens::version::{self, VersionScreen};
 use crate::services::Services;
+use crate::theme::logo;
 use crate::widgets::{self, BOLD};
 
 #[derive(Debug, Clone)]
@@ -25,7 +26,6 @@ pub enum Message {
     Downloads(downloads::Message),
     SaveTo(Request, Option<PathBuf>),
     DismissError,
-    ToggleTheme,
 }
 
 enum Screen {
@@ -40,7 +40,7 @@ pub struct App {
     screen: Screen,
     downloads: Downloads,
     error: Option<String>,
-    dark: bool,
+    theme: Theme,
     last_dir: Option<PathBuf>,
 }
 
@@ -64,7 +64,7 @@ impl App {
             screen: Screen::Welcome,
             downloads: Downloads::default(),
             error,
-            dark: true,
+            theme: crate::theme::waves(),
             last_dir: directories::UserDirs::new()
                 .and_then(|d| d.download_dir().map(PathBuf::from)),
         };
@@ -84,7 +84,7 @@ impl App {
     }
 
     pub fn theme(&self) -> Theme {
-        if self.dark { Theme::Dark } else { Theme::Light }
+        self.theme.clone()
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -157,10 +157,6 @@ impl App {
                 self.error = None;
                 Task::none()
             }
-            Message::ToggleTheme => {
-                self.dark = !self.dark;
-                Task::none()
-            }
         }
     }
 
@@ -195,11 +191,7 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let theme = if self.dark {
-            &Theme::Dark
-        } else {
-            &Theme::Light
-        };
+        let theme = &self.theme;
         let bucket = self
             .services
             .as_ref()
@@ -210,23 +202,25 @@ impl App {
             row![
                 image(assets::wave()).height(30),
                 text("Surf").size(20).font(BOLD),
-                widgets::muted("WAVES data browser"),
-                widgets::spacer(),
-                button(text(if self.dark { "Light mode" } else { "Dark mode" }).size(13))
-                    .style(button::text)
-                    .on_press(Message::ToggleTheme),
+                text("WAVES data browser").size(13).color(logo::SKY),
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center),
         )
-        .padding([10, 16]);
+        .padding([10, 16])
+        .width(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(logo::NAVY.into()),
+            text_color: Some(logo::FOAM),
+            ..container::Style::default()
+        });
 
         let sidebar = container(self.browser.view(bucket).map(Message::Browser))
             .width(320)
             .height(Length::Fill);
 
         let main: Element<'_, Message> = match &self.screen {
-            Screen::Welcome => welcome(self.dark),
+            Screen::Welcome => welcome(),
             Screen::Version(a) => {
                 let key = a.key().to_owned();
                 a.view(theme).map(move |m| Message::Version(key.clone(), m))
@@ -258,10 +252,10 @@ impl App {
     }
 }
 
-fn welcome<'a>(dark: bool) -> Element<'a, Message> {
+fn welcome<'a>() -> Element<'a, Message> {
     container(
         column![
-            image(assets::wordmark(dark)).width(460),
+            image(assets::wordmark()).width(460),
             widgets::heading("Welcome to Surf"),
             text("Browse the WAVES data products on the left."),
             text("• Click a dataset to open its latest version (v1, v2, …)."),

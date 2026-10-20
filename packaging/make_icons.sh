@@ -19,9 +19,8 @@ magick "$SRC_SQUARE" -crop 1417x1417+430+0 +repage -trim +repage "$TMP/wave.png"
 # Small wave for the header (2x for HiDPI).
 magick "$TMP/wave.png" -resize 128x128 -background none -gravity center -extent 128x128 "$OUT/wave.png"
 
-# Wordmark for light and dark themes (dark: black text recoloured to near-white).
-magick "$SRC_WORDMARK" -resize 1200x "$OUT/wordmark_light.png"
-magick "$SRC_WORDMARK" -resize 1200x -fuzz 25% -fill '#e6e9ee' -opaque black "$OUT/wordmark_dark.png"
+# Wordmark for the dark WAVES theme: black text recoloured to the logo's foam.
+magick "$SRC_WORDMARK" -resize 1200x -fuzz 25% -fill '#DEECEF' -opaque black "$OUT/wordmark.png"
 
 # App icon: the wave on a white rounded square, in macOS icon proportions
 # (824px tile with ~185px corners on a 1024px canvas).

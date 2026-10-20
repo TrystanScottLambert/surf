@@ -10,23 +10,17 @@ use iced::window;
 
 static WAVE: LazyLock<Handle> =
     LazyLock::new(|| Handle::from_bytes(&include_bytes!("../assets/wave.png")[..]));
-static WORDMARK_LIGHT: LazyLock<Handle> =
-    LazyLock::new(|| Handle::from_bytes(&include_bytes!("../assets/wordmark_light.png")[..]));
-static WORDMARK_DARK: LazyLock<Handle> =
-    LazyLock::new(|| Handle::from_bytes(&include_bytes!("../assets/wordmark_dark.png")[..]));
+static WORDMARK: LazyLock<Handle> =
+    LazyLock::new(|| Handle::from_bytes(&include_bytes!("../assets/wordmark.png")[..]));
 
 /// The WAVES wave, without text.
 pub fn wave() -> Handle {
     WAVE.clone()
 }
 
-/// The full WAVES wordmark, with text coloured for the theme.
-pub fn wordmark(dark: bool) -> Handle {
-    if dark {
-        WORDMARK_DARK.clone()
-    } else {
-        WORDMARK_LIGHT.clone()
-    }
+/// The full WAVES wordmark, with light text for the dark WAVES theme.
+pub fn wordmark() -> Handle {
+    WORDMARK.clone()
 }
 
 /// The window icon (used on Linux; macOS takes the icon from the app bundle).
