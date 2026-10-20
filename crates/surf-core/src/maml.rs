@@ -15,6 +15,22 @@ pub enum Value {
 }
 
 impl Value {
+    /// A non-empty list whose items are all maps (e.g. `DOIs`, `depends`,
+    /// a daml's `tables`), as a table with one column per key.
+    pub fn as_table(&self) -> Option<FieldTable> {
+        let Value::List(items) = self else {
+            return None;
+        };
+        let maps: Vec<&Vec<(String, Value)>> = items
+            .iter()
+            .map(|i| match i {
+                Value::Map(m) => Some(m),
+                _ => None,
+            })
+            .collect::<Option<_>>()?;
+        (!maps.is_empty()).then(|| table_of(maps.iter().copied()))
+    }
+
     /// A one-line rendering: scalars as-is, lists joined by `, `, maps as
     /// `key: value, key: value` (nested maps in braces).
     pub fn inline(&self) -> String {
@@ -103,6 +119,7 @@ fn field_table(v: &Yaml) -> FieldTable {
     let Yaml::Array(items) = v else {
         return FieldTable::default();
     };
+    // A bare string in `fields` is taken as just a column name.
     let fields: Vec<Vec<(String, Value)>> = items
         .iter()
         .map(|item| match convert(item) {
@@ -110,21 +127,26 @@ fn field_table(v: &Yaml) -> FieldTable {
             other => vec![("name".to_owned(), other)],
         })
         .collect();
+    table_of(&fields)
+}
+
+/// Rows of key/value pairs as a rectangular table (union of keys).
+fn table_of<'a>(maps: impl IntoIterator<Item = &'a Vec<(String, Value)>> + Clone) -> FieldTable {
     let mut columns: Vec<String> = Vec::new();
-    for f in &fields {
-        for (k, _) in f {
+    for map in maps.clone() {
+        for (k, _) in map {
             if !columns.contains(k) {
                 columns.push(k.clone());
             }
         }
     }
-    let rows = fields
-        .iter()
-        .map(|f| {
+    let rows = maps
+        .into_iter()
+        .map(|map| {
             columns
                 .iter()
                 .map(|c| {
-                    f.iter()
+                    map.iter()
                         .find(|(k, _)| k == c)
                         .map(|(_, v)| v.inline())
                         .unwrap_or_default()
@@ -267,6 +289,24 @@ fields:
         assert_eq!(daml.get("tables").as_deref(), Some("name: a, version: 1"));
         assert!(parse("key: [unclosed").is_err());
         assert!(parse("- just\n- a list\n").is_err());
+    }
+
+    #[test]
+    fn lists_of_maps_become_tables() {
+        let daml = parse(
+            "tables:\n- name: photometry_wws\n  version: 1\n- name: photometry_wd01\n  version: 1\n",
+        )
+        .unwrap();
+        let t = daml.entries[0].1.as_table().unwrap();
+        assert_eq!(t.columns, ["name", "version"]);
+        assert_eq!(t.rows, [["photometry_wws", "1"], ["photometry_wd01", "1"]]);
+
+        let m = parse(EXAMPLE).unwrap();
+        let (_, dois) = m.entries.iter().find(|(k, _)| k == "DOIs").unwrap();
+        assert_eq!(dois.as_table().unwrap().columns, ["DOI", "type"]);
+        let (_, coauthors) = m.entries.iter().find(|(k, _)| k == "coauthors").unwrap();
+        assert!(coauthors.as_table().is_none());
+        assert!(Value::List(vec![]).as_table().is_none());
     }
 
     #[test]

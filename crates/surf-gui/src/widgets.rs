@@ -121,11 +121,14 @@ pub fn maml_summary<'a, M: 'a>(maml: &'a Maml) -> Element<'a, M> {
     card(column(rows).spacing(8))
 }
 
-/// One metadata value: scalars on one line; short scalar lists joined with
-/// commas; longer lists and lists of maps one item per line.
+/// One metadata value: lists of records as a small table, scalars on one
+/// line, short lists joined with commas, longer lists one item per line.
 fn maml_value<'a, M: 'a>(value: &'a maml::Value) -> Element<'a, M> {
     use maml::Value;
     let line = |s: String| -> Element<'a, M> { text(s).width(Length::Fill).into() };
+    if let Some(t) = value.as_table() {
+        return small_table(t);
+    }
     match value {
         Value::Text(t) => line(t.clone()),
         Value::Map(_) => line(value.inline()),
@@ -143,6 +146,20 @@ fn maml_value<'a, M: 'a>(value: &'a maml::Value) -> Element<'a, M> {
             }
         }
     }
+}
+
+/// A compact table for a list of records (e.g. a dataset's tables, DOIs).
+fn small_table<'a, M: 'a>(t: FieldTable) -> Element<'a, M> {
+    let columns = t.columns.iter().enumerate().map(|(i, name)| {
+        table::column(
+            text(name.replace('_', " ")).font(BOLD).size(13),
+            move |r: Vec<String>| text(r[i].clone()).size(14),
+        )
+    });
+    table(columns, t.rows)
+        .padding_x(12)
+        .padding_y(4)
+        .into()
 }
 
 /// The MAML `fields` as a searchable, scrollable table.
