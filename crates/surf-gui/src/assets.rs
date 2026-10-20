@@ -23,9 +23,12 @@ pub fn wordmark() -> Handle {
     WORDMARK.clone()
 }
 
-/// The window icon (used on Linux; macOS takes the icon from the app bundle).
+/// The app icon (the wave on a white rounded tile) as PNG.
+pub const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
+
+/// The window icon (used on Linux; macOS uses the dock icon instead).
 pub fn window_icon() -> Option<window::Icon> {
-    window::icon::from_file_data(include_bytes!("../assets/icon.png"), None)
+    window::icon::from_file_data(ICON_PNG, None)
         .inspect_err(|e| tracing::warn!(error = %e, "could not load window icon"))
         .ok()
 }

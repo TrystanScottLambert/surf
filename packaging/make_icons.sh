@@ -27,7 +27,7 @@ magick "$SRC_WORDMARK" -resize 1200x -fuzz 25% -fill '#DEECEF' -opaque black "$O
 magick -size 1024x1024 xc:none -fill white -draw "roundrectangle 100,100 923,923 185,185" "PNG32:$TMP/tile.png"
 magick "$TMP/wave.png" -resize 620x620 "$TMP/wave620.png"
 magick "$TMP/tile.png" "$TMP/wave620.png" -gravity center -geometry +12+0 -composite "PNG32:$TMP/icon1024.png"
-magick "$TMP/icon1024.png" -resize 256x256 "PNG32:$OUT/icon.png"   # window icon (Linux)
+magick "$TMP/icon1024.png" -resize 512x512 "PNG32:$OUT/icon.png"   # window icon (Linux), dock icon when not bundled (macOS)
 
 if command -v iconutil >/dev/null; then
   SET="$TMP/Surf.iconset"

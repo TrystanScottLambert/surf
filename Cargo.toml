@@ -32,7 +32,8 @@ directories = "6"
 tempfile = "3"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# `deny` rather than `forbid` so the one macOS dock-icon call can opt in locally.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

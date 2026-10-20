@@ -2,6 +2,8 @@
 
 mod app;
 mod assets;
+#[cfg(target_os = "macos")]
+mod dock;
 mod screens;
 mod services;
 mod theme;
@@ -10,6 +12,9 @@ mod widgets;
 fn main() -> iced::Result {
     let _log_guard = init_logging();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting surf");
+
+    #[cfg(target_os = "macos")]
+    dock::set_icon(assets::ICON_PNG);
 
     iced::application(app::App::new, app::App::update, app::App::view)
         .title(app::App::title)
