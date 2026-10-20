@@ -1,7 +1,10 @@
 //! Small reusable view helpers.
 
-use iced::widget::{button, column, container, markdown, row, scrollable, space, table, text};
-use iced::{Element, Font, Length, Theme, font};
+use iced::widget::{
+    button, column, container, markdown, row, scrollable, space, table, text, text_input,
+};
+use iced::{Element, Font, Length, Padding, Theme, font};
+use surf_core::maml::{self, FieldTable, Maml};
 
 /// Something fetched asynchronously.
 #[derive(Debug, Clone, Default)]
@@ -103,6 +106,99 @@ pub fn markdown_view<'a>(
 /// Plain YAML (or any preformatted text) in a monospace card.
 pub fn yaml_view<'a, M: 'a>(yaml: &'a str) -> Element<'a, M> {
     card(text(yaml).font(MONO).size(13))
+}
+
+/// Top-level MAML/DAML entries as bold labels with their values.
+pub fn maml_summary<'a, M: 'a>(maml: &'a Maml) -> Element<'a, M> {
+    let rows = maml.entries.iter().map(|(key, value)| {
+        row![
+            text(maml::label(key)).font(BOLD).width(150),
+            maml_value(value)
+        ]
+        .spacing(12)
+        .into()
+    });
+    card(column(rows).spacing(8))
+}
+
+/// One metadata value: scalars on one line; short scalar lists joined with
+/// commas; longer lists and lists of maps one item per line.
+fn maml_value<'a, M: 'a>(value: &'a maml::Value) -> Element<'a, M> {
+    use maml::Value;
+    let line = |s: String| -> Element<'a, M> { text(s).width(Length::Fill).into() };
+    match value {
+        Value::Text(t) => line(t.clone()),
+        Value::Map(_) => line(value.inline()),
+        Value::List(items) => {
+            let short = items
+                .iter()
+                .all(|i| matches!(i, Value::Text(t) if t.chars().count() <= 32));
+            if short {
+                line(value.inline())
+            } else {
+                column(items.iter().map(|i| line(i.inline())))
+                    .spacing(4)
+                    .width(Length::Fill)
+                    .into()
+            }
+        }
+    }
+}
+
+/// The MAML `fields` as a searchable, scrollable table.
+pub fn maml_fields<'a, M: Clone + 'a>(
+    fields: &'a FieldTable,
+    search: &'a str,
+    on_search: impl Fn(String) -> M + 'a,
+) -> Element<'a, M> {
+    let needle = search.to_lowercase();
+    let matching: Vec<&Vec<String>> = fields
+        .rows
+        .iter()
+        .filter(|r| needle.is_empty() || r.iter().any(|c| c.to_lowercase().contains(&needle)))
+        .collect();
+    let shown = matching.len();
+
+    let columns = fields.columns.iter().enumerate().map(|(i, name)| {
+        let col = table::column(
+            text(name.replace('_', " ")).font(BOLD).size(13),
+            move |r: &Vec<String>| {
+                let cell = text(r[i].as_str()).size(13);
+                if i == 0 { cell.font(MONO) } else { cell }
+            },
+        );
+        if name == "info" {
+            col.width(Length::Fill)
+        } else {
+            col
+        }
+    });
+    let grid = table(columns, matching)
+        .padding_x(10)
+        .padding_y(4)
+        .width(Length::Fill);
+
+    let count = if needle.is_empty() {
+        format!("{} columns", fields.rows.len())
+    } else {
+        format!("{shown} of {} columns", fields.rows.len())
+    };
+    card(
+        column![
+            row![
+                subheading("Columns"),
+                muted(count),
+                spacer(),
+                text_input("Search columns…", search)
+                    .on_input(on_search)
+                    .width(260),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+            scrollable(container(grid).padding(Padding::ZERO.right(12))).height(480),
+        ]
+        .spacing(10),
+    )
 }
 
 /// A grid of string cells, scrollable in both directions.

@@ -1,22 +1,21 @@
-//! A dataset version's page: its tables, description (`.md`), dataset info
-//! (`.daml`) and checksums, in tabs.
+//! A dataset version's page: its tables, description (`.md`) and dataset
+//! info (`.daml`), in tabs.
 
 use std::sync::Arc;
 
-use iced::widget::{button, column, markdown, row, scrollable, table, text};
+use iced::widget::{button, column, markdown, row, scrollable, text};
 use iced::{Element, Length, Padding, Task, Theme};
-use surf_core::checksums::{self, Checksums};
+use surf_core::maml::{self, Maml};
 use surf_core::{Entry, EntryKind, Listing, parent_name};
 
 use crate::services::Services;
-use crate::widgets::{self, BOLD, Loadable, MONO, human_bytes};
+use crate::widgets::{self, Loadable, human_bytes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Tables,
     Description,
     DatasetInfo,
-    Checksums,
 }
 
 /// Which supporting document a load result belongs to.
@@ -24,7 +23,6 @@ pub enum Tab {
 pub enum Doc {
     Description,
     DatasetInfo,
-    Checksums,
 }
 
 #[derive(Debug, Clone)]
@@ -54,14 +52,20 @@ enum File<T> {
     Loaded(Loadable<T>),
 }
 
+/// A `.daml` file: the raw text, and its parsed form if it parsed.
+#[derive(Debug)]
+struct DatasetInfo {
+    raw: Arc<String>,
+    parsed: Result<Maml, String>,
+}
+
 pub struct VersionScreen {
     prefix: String,
     title: String,
     tab: Tab,
     listing: Loadable<Arc<Listing>>,
     description: File<Vec<markdown::Item>>,
-    dataset_info: File<Arc<String>>,
-    checksums: File<Checksums>,
+    dataset_info: File<DatasetInfo>,
 }
 
 impl VersionScreen {
@@ -92,7 +96,6 @@ impl VersionScreen {
             listing: Loadable::Loading,
             description: File::Waiting,
             dataset_info: File::Waiting,
-            checksums: File::Waiting,
         };
         (screen, task)
     }
@@ -114,10 +117,8 @@ impl VersionScreen {
                 };
                 let has_md = start(listing.readme(), Doc::Description);
                 let has_daml = start(listing.find(EntryKind::DatasetMeta), Doc::DatasetInfo);
-                let has_sums = start(listing.find(EntryKind::Checksums), Doc::Checksums);
                 self.description = waiting_or_missing(has_md);
                 self.dataset_info = waiting_or_missing(has_daml);
-                self.checksums = waiting_or_missing(has_sums);
                 self.listing = Loadable::Ready(listing);
                 Action::Run(Task::batch(tasks))
             }
@@ -132,9 +133,11 @@ impl VersionScreen {
                             markdown::parse(&surf_core::text::linkify(&md)).collect()
                         }));
                     }
-                    Doc::DatasetInfo => self.dataset_info = File::Loaded(map(result, |t| t)),
-                    Doc::Checksums => {
-                        self.checksums = File::Loaded(map(result, |t| checksums::parse(&t)));
+                    Doc::DatasetInfo => {
+                        self.dataset_info = File::Loaded(map(result, |raw| DatasetInfo {
+                            parsed: maml::parse(&raw),
+                            raw,
+                        }));
                     }
                 }
                 Action::None
@@ -163,26 +166,33 @@ impl VersionScreen {
             tab_button("Tables", Tab::Tables),
             tab_button("Description", Tab::Description),
             tab_button("Dataset info", Tab::DatasetInfo),
-            tab_button("Checksums", Tab::Checksums),
         ]
         .spacing(8);
 
-        let body: Element<'_, Message> = match &self.listing {
-            Loadable::Loading => widgets::loading("this version"),
-            Loadable::Failed(e) => widgets::failed("this version", e),
-            Loadable::Ready(listing) => match self.tab {
-                Tab::Tables => self.view_tables(listing),
-                Tab::Description => view_file(&self.description, "description", |items| {
-                    widgets::markdown_view(items, theme).map(Message::Link)
-                }),
-                Tab::DatasetInfo => view_file(&self.dataset_info, "dataset info", |yaml| {
-                    widgets::yaml_view(yaml)
-                }),
-                Tab::Checksums => view_file(&self.checksums, "checksums", |sums| {
-                    view_checksums(sums, listing)
-                }),
-            },
-        };
+        let body: Element<'_, Message> =
+            match &self.listing {
+                Loadable::Loading => widgets::loading("this version"),
+                Loadable::Failed(e) => widgets::failed("this version", e),
+                Loadable::Ready(listing) => match self.tab {
+                    Tab::Tables => self.view_tables(listing),
+                    Tab::Description => view_file(&self.description, "description", |items| {
+                        widgets::markdown_view(items, theme).map(Message::Link)
+                    }),
+                    Tab::DatasetInfo => view_file(&self.dataset_info, "dataset info", |info| {
+                        match &info.parsed {
+                            Ok(m) => widgets::maml_summary(m),
+                            Err(e) => column![
+                                widgets::muted(format!(
+                                    "The dataset info couldn't be read ({e}); showing it as text."
+                                )),
+                                widgets::yaml_view(info.raw.as_str()),
+                            ]
+                            .spacing(8)
+                            .into(),
+                        }
+                    }),
+                },
+            };
 
         column![
             widgets::heading(self.title.as_str()),
@@ -197,14 +207,17 @@ impl VersionScreen {
     fn view_tables<'a>(&'a self, listing: &'a Listing) -> Element<'a, Message> {
         let mut content = column![].spacing(16);
 
-        if let File::Loaded(Loadable::Ready(yaml)) = &self.dataset_info {
+        if let File::Loaded(Loadable::Ready(DatasetInfo {
+            parsed: Ok(daml), ..
+        })) = &self.dataset_info
+        {
             let mut summary = column![].spacing(4);
-            if let Some(desc) = yaml_value(yaml, "description") {
+            if let Some(desc) = daml.get("description") {
                 summary = summary.push(text(desc).size(15));
             }
             let byline: Vec<String> = [("author", "By"), ("date", "Date"), ("license", "License")]
                 .iter()
-                .filter_map(|(k, label)| yaml_value(yaml, k).map(|v| format!("{label}: {v}")))
+                .filter_map(|(k, label)| daml.get(k).map(|v| format!("{label}: {v}")))
                 .collect();
             if !byline.is_empty() {
                 summary = summary.push(widgets::muted(byline.join("   ·   ")));
@@ -235,41 +248,6 @@ impl VersionScreen {
     }
 }
 
-fn view_checksums<'a>(sums: &'a Checksums, listing: &'a Listing) -> Element<'a, Message> {
-    let size_of = |file: &str| {
-        let key = format!("{}{file}", listing.prefix);
-        let entry = listing.entries.iter().find(|e| e.key == key);
-        match (entry.and_then(|e| e.size), EntryKind::of_file(file)) {
-            (Some(size), _) => human_bytes(size),
-            (None, EntryKind::TableMeta) => "inside the table".to_owned(),
-            (None, _) => "not in folder".to_owned(),
-        }
-    };
-    let grid = table(
-        [
-            table::column(text("File").font(BOLD), |e: &checksums::ChecksumEntry| {
-                text(e.file.as_str()).size(14)
-            }),
-            table::column(text("Type").font(BOLD), |e: &checksums::ChecksumEntry| {
-                text(EntryKind::of_file(&e.file).describe()).size(13)
-            }),
-            table::column(
-                text("Size").font(BOLD),
-                move |e: &checksums::ChecksumEntry| text(size_of(&e.file)).size(13),
-            ),
-            table::column(text("SHA-1").font(BOLD), |e: &checksums::ChecksumEntry| {
-                text(e.sha1.as_str()).size(13).font(MONO)
-            }),
-        ],
-        sums.entries.iter(),
-    )
-    .padding_x(12)
-    .padding_y(5);
-
-    let notes = column(sums.notes.iter().map(|n| widgets::muted(n.as_str()))).spacing(2);
-    widgets::card(column![notes, grid].spacing(12))
-}
-
 fn view_file<'a, T>(
     file: &'a File<T>,
     what: &str,
@@ -298,22 +276,6 @@ fn map<T>(result: Result<Arc<String>, String>, f: impl FnOnce(Arc<String>) -> T)
     }
 }
 
-/// The value of a top-level `key: value` line in simple YAML, joining folded
-/// continuation lines and removing surrounding quotes. Not a YAML parser.
-fn yaml_value(yaml: &str, key: &str) -> Option<String> {
-    let mut lines = yaml.lines();
-    let first = lines
-        .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))?
-        .trim();
-    let mut value = first.to_owned();
-    for cont in lines.take_while(|l| l.starts_with("  ") && !l.trim_start().starts_with('-')) {
-        value.push(' ');
-        value.push_str(cont.trim());
-    }
-    let value = value.trim_matches(['\'', '"']).trim().to_owned();
-    (!value.is_empty()).then_some(value)
-}
-
 fn load_text(services: &Services, key: String, doc: Doc) -> Task<Message> {
     let bucket = services.bucket().clone();
     Task::perform(
@@ -326,23 +288,4 @@ fn load_text(services: &Services, key: String, doc: Doc) -> Task<Message> {
         },
         move |result| Message::DocLoaded(doc, result),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::yaml_value;
-
-    const DAML: &str = "survey: WAVES\ndate: '2026-07-10'\ncoauthors:\n- A\ndescription: FUV-W2 photometry in the\n  WAVES-N region\nlicense: Copyright WAVES [Private]\n";
-
-    #[test]
-    fn reads_simple_yaml_values() {
-        assert_eq!(yaml_value(DAML, "survey").as_deref(), Some("WAVES"));
-        assert_eq!(yaml_value(DAML, "date").as_deref(), Some("2026-07-10"));
-        assert_eq!(
-            yaml_value(DAML, "description").as_deref(),
-            Some("FUV-W2 photometry in the WAVES-N region")
-        );
-        assert_eq!(yaml_value(DAML, "coauthors"), None);
-        assert_eq!(yaml_value(DAML, "missing"), None);
-    }
 }

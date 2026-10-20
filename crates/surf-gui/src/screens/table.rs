@@ -1,16 +1,17 @@
-//! A parquet table: overview (metadata + schema) and the select/download tab.
+//! A parquet table: overview (its maml metadata) and the select/download tab.
 
 use std::sync::Arc;
 
-use iced::widget::{button, column, container, row, scrollable, table, text};
+use iced::widget::{button, column, row, scrollable, text};
 use iced::{Element, Length, Task};
 use surf_core::Entry;
+use surf_core::maml::{self, Maml};
 use surf_query::TableInfo;
 
 use super::downloads::Request;
 use super::query::{self, Query};
 use crate::services::Services;
-use crate::widgets::{self, BOLD, Loadable, MONO, human_bytes, human_count};
+use crate::widgets::{self, Loadable, human_bytes, human_count};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -22,6 +23,7 @@ pub enum Tab {
 pub enum Message {
     InfoLoaded(Result<Arc<TableInfo>, String>),
     Tab(Tab),
+    FieldSearch(String),
     DownloadFile,
     Query(query::Message),
 }
@@ -35,6 +37,9 @@ pub enum Action {
 pub struct TableScreen {
     entry: Entry,
     info: Loadable<Arc<TableInfo>>,
+    /// The parsed maml (`None` when the table has none).
+    maml: Option<Result<Maml, String>>,
+    field_search: String,
     tab: Tab,
     query: Option<Query>,
 }
@@ -56,6 +61,8 @@ impl TableScreen {
         let screen = TableScreen {
             entry,
             info: Loadable::Loading,
+            maml: None,
+            field_search: String::new(),
             tab: Tab::Overview,
             query: None,
         };
@@ -69,6 +76,7 @@ impl TableScreen {
     pub fn update(&mut self, services: &Services, message: Message) -> Action {
         match message {
             Message::InfoLoaded(Ok(info)) => {
+                self.maml = info.maml.as_deref().map(maml::parse);
                 self.query = Some(Query::new(info.clone()));
                 self.info = Loadable::Ready(info);
                 Action::None
@@ -86,6 +94,10 @@ impl TableScreen {
                     }
                     _ => Action::None,
                 }
+            }
+            Message::FieldSearch(s) => {
+                self.field_search = s;
+                Action::None
             }
             Message::DownloadFile => Action::Download(Request::Object {
                 key: self.entry.key.clone(),
@@ -152,61 +164,33 @@ impl TableScreen {
             widgets::stat("Rows", human_count(info.num_rows)),
             widgets::stat("Columns", human_count(info.columns.len() as u64)),
             widgets::stat("File size", human_bytes(info.size_bytes)),
-            widgets::stat("Row groups", human_count(info.num_row_groups as u64)),
         ]
         .spacing(40);
 
-        // The maml is YAML; shown as-is for now (a structured view can come later).
-        let metadata: Element<'_, Message> = match &info.maml {
-            None => widgets::muted("This table has no embedded metadata (maml)."),
-            Some(yaml) => container(scrollable(widgets::yaml_view(yaml)))
-                .max_height(420)
-                .into(),
-        };
-
-        let schema = table(
-            [
-                table::column(text("Column").font(BOLD), |c: &surf_query::ColumnInfo| {
-                    text(c.name.as_str()).font(MONO)
-                }),
-                table::column(text("Type").font(BOLD), |c: &surf_query::ColumnInfo| {
-                    text(c.data_type.as_str()).size(13)
-                }),
-                table::column(
-                    text("Can be empty").font(BOLD),
-                    |c: &surf_query::ColumnInfo| {
-                        text(if c.nullable { "yes" } else { "no" }).size(13)
-                    },
-                ),
-            ],
-            info.columns.iter(),
-        )
-        .padding_x(12)
-        .padding_y(4);
-
-        let mut extra = column![].spacing(4);
-        if let Some(by) = &info.created_by {
-            extra = extra.push(widgets::muted(format!("Written by: {by}")));
-        }
-        for (k, v) in &info.other_metadata {
-            let v = if v.len() > 200 {
-                format!("{}…", &v[..v.floor_char_boundary(200)])
-            } else {
-                v.clone()
-            };
-            extra = extra.push(widgets::muted(format!("{k}: {v}")));
+        let mut content = column![widgets::card(stats)].spacing(16);
+        match (&self.maml, &info.maml) {
+            (Some(Ok(maml)), _) => {
+                content = content.push(widgets::maml_summary(maml));
+                if !maml.fields.is_empty() {
+                    content = content.push(widgets::maml_fields(
+                        &maml.fields,
+                        &self.field_search,
+                        Message::FieldSearch,
+                    ));
+                }
+            }
+            (Some(Err(e)), Some(raw)) => {
+                content = content
+                    .push(widgets::muted(format!(
+                        "The metadata couldn't be read ({e}); showing it as text."
+                    )))
+                    .push(widgets::yaml_view(raw));
+            }
+            _ => content = content.push(widgets::muted("This table has no metadata.")),
         }
 
-        scrollable(
-            column![
-                widgets::card(stats),
-                widgets::card(column![widgets::subheading("Metadata"), metadata].spacing(10)),
-                widgets::card(column![widgets::subheading("Columns"), schema, extra].spacing(10)),
-            ]
-            .spacing(16)
-            .padding(iced::Padding::ZERO.right(14)),
-        )
-        .height(Length::Fill)
-        .into()
+        scrollable(content.padding(iced::Padding::ZERO.right(14)))
+            .height(Length::Fill)
+            .into()
     }
 }

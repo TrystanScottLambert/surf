@@ -63,7 +63,7 @@ impl App {
             screen: Screen::Welcome,
             downloads: Downloads::default(),
             error,
-            dark: false,
+            dark: true,
             last_dir: directories::UserDirs::new()
                 .and_then(|d| d.download_dir().map(PathBuf::from)),
         };

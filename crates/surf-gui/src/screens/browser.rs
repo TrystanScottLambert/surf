@@ -1,7 +1,7 @@
 //! The bucket tree in the sidebar, loaded lazily folder by folder.
 //!
-//! Only folders and tables are shown; a version's description, metadata and
-//! checksums appear on its version page instead.
+//! Only folders and tables are shown; a version's description and dataset
+//! info appear on its version page instead.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
