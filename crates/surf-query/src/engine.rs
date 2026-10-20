@@ -61,9 +61,21 @@ impl Engine {
 
     /// First `limit` matching rows, plus the total number of matching rows.
     pub async fn preview(&self, key: &str, selection: &Selection, limit: usize) -> Result<Preview> {
+        let (sample, count) = futures::try_join!(
+            self.sample(key, selection, limit),
+            self.count(key, selection)
+        )?;
+        Ok(Preview {
+            matching_rows: count,
+            ..sample
+        })
+    }
+
+    /// The first `limit` matching rows. Stops reading as soon as it has them,
+    /// so it is quick even on very large tables. `matching_rows` is left at 0.
+    pub async fn sample(&self, key: &str, selection: &Selection, limit: usize) -> Result<Preview> {
         let df = plan::apply(self.table(key).await?, selection)?;
-        let sample = df.clone().limit(0, Some(limit))?.collect();
-        let (batches, count) = futures::try_join!(sample, df.count())?;
+        let batches = df.limit(0, Some(limit))?.collect().await?;
         let (mut columns, rows) = to_rows(&batches)?;
         if columns.is_empty() {
             columns = self.selected_columns(key, selection).await?;
@@ -71,8 +83,15 @@ impl Engine {
         Ok(Preview {
             columns,
             rows,
-            matching_rows: count as u64,
+            matching_rows: 0,
         })
+    }
+
+    /// Number of rows matching the selection. Without filters this comes from
+    /// the parquet statistics; with filters it scans the filtered columns.
+    pub async fn count(&self, key: &str, selection: &Selection) -> Result<u64> {
+        let df = plan::apply(self.table(key).await?, selection)?;
+        Ok(df.count().await? as u64)
     }
 
     /// Write the selection to a local file, reporting rows written.

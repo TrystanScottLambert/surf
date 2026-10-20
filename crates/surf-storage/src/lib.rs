@@ -133,7 +133,9 @@ impl Bucket {
             });
         }
         let bytes = self.store.get(&path).await?.bytes().await?;
-        String::from_utf8(bytes.to_vec()).map_err(|_| StorageError::NotText(key.to_owned()))
+        let text =
+            String::from_utf8(bytes.to_vec()).map_err(|_| StorageError::NotText(key.to_owned()))?;
+        Ok(surf_core::text::strip_bom(&text).to_owned())
     }
 
     /// Stream an object to a local file. See [`download_to`].
@@ -168,7 +170,7 @@ mod tests {
     async fn fixture() -> Bucket {
         let store = Arc::new(InMemory::new());
         for (key, body) in [
-            ("groups/v1/groups.md", "# Groups\nhello"),
+            ("groups/v1/groups.md", "\u{feff}# Groups\nhello"),
             ("groups/v1/groups.parquet", "PAR1"),
             ("groups/v1/galaxies.parquet", "PAR1"),
             ("groups/v2/groups.md", "# v2"),

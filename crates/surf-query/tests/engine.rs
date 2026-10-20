@@ -290,3 +290,15 @@ async fn works_against_a_local_folder() {
     );
     assert_eq!(e.preview(KEY, &sel, 1).await.unwrap().matching_rows, 499);
 }
+
+#[tokio::test]
+async fn sample_and_count_separately() {
+    let e = engine().await;
+    let sel = filters(
+        Combinator::And,
+        vec![Filter::new("dec", Op::Gt).with_values("0", "")],
+    );
+    let sample = e.sample(KEY, &sel, 7).await.unwrap();
+    assert_eq!(sample.rows.len(), 7);
+    assert_eq!(e.count(KEY, &sel).await.unwrap(), 499);
+}
