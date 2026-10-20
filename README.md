@@ -115,3 +115,21 @@ cargo test --workspace
 2. Bump `version` in `Cargo.toml`, then tag: `git tag v0.1.0 && git push --tags`.
 3. GitHub Actions builds a universal macOS `Surf.app` and a Linux x86_64
    binary and attaches them to a draft release.
+
+### Signing the macOS app
+
+Without signing secrets the app gets an ad-hoc signature, and users must
+right-click → Open the first time. To sign with an Apple Developer ID and
+notarize, add these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `MACOS_CERTIFICATE_P12` | `base64 -i DeveloperID.p12 \| pbcopy`: the *Developer ID Application* certificate and its private key, exported from Keychain Access |
+| `MACOS_CERTIFICATE_PASSWORD` | the password chosen when exporting the `.p12` |
+| `MACOS_SIGN_IDENTITY` | e.g. `Developer ID Application: Jane Doe (ABCDE12345)` (`security find-identity -v -p codesigning`) |
+| `MACOS_NOTARY_APPLE_ID` | your Apple ID email |
+| `MACOS_NOTARY_TEAM_ID` | the 10-character team ID |
+| `MACOS_NOTARY_PASSWORD` | an app-specific password from account.apple.com |
+
+To sign a local build, export the `SURF_SIGN_IDENTITY` and `SURF_NOTARY_*`
+variables described in `packaging/macos/bundle.sh` before running it.
