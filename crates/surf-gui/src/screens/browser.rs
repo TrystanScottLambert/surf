@@ -1,10 +1,13 @@
 //! The bucket tree in the sidebar, loaded lazily folder by folder.
+//!
+//! Only folders and tables are shown; a version's description, metadata and
+//! checksums appear on its version page instead.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use iced::widget::{button, column, container, row, scrollable, text};
-use iced::{Element, Length, Task};
+use iced::{Element, Length, Padding, Task};
 use surf_core::{Entry, EntryKind, Listing};
 
 use crate::services::Services;
@@ -27,7 +30,6 @@ pub enum Action {
         load: Option<Task<Message>>,
     },
     OpenTable(Entry),
-    OpenDocument(Entry),
 }
 
 #[derive(Debug)]
@@ -42,6 +44,9 @@ pub struct Browser {
     folders: HashMap<String, Folder>,
     expanded: HashSet<String>,
     selected: Option<String>,
+    /// A dataset folder the user clicked before its listing arrived; its
+    /// latest version opens once it does.
+    pending_latest: Option<String>,
 }
 
 impl Browser {
@@ -58,7 +63,11 @@ impl Browser {
                     Ok(listing) => Folder::Loaded(listing),
                     Err(e) => Folder::Failed(e),
                 };
-                self.folders.insert(prefix, folder);
+                self.folders.insert(prefix.clone(), folder);
+                if self.pending_latest.as_deref() == Some(prefix.as_str()) {
+                    self.pending_latest = None;
+                    return self.open_latest(services, &prefix).unwrap_or(Action::None);
+                }
                 Action::None
             }
             Message::Refresh => {
@@ -71,21 +80,29 @@ impl Browser {
             Message::Clicked(entry) => {
                 self.selected = Some(entry.key.clone());
                 match entry.kind {
-                    EntryKind::Folder | EntryKind::VersionFolder(_) => {
-                        let is_version = matches!(entry.kind, EntryKind::VersionFolder(_));
-                        let task = self.toggle(services, entry.key.clone(), is_version);
-                        if is_version {
-                            Action::OpenVersion {
-                                prefix: entry.key,
-                                load: task,
+                    EntryKind::VersionFolder(_) => {
+                        let load = self.expand(services, entry.key.clone());
+                        Action::OpenVersion {
+                            prefix: entry.key,
+                            load,
+                        }
+                    }
+                    EntryKind::Folder => {
+                        if self.expanded.remove(&entry.key) {
+                            return Action::None;
+                        }
+                        match self.expand(services, entry.key.clone()) {
+                            Some(load) => {
+                                self.pending_latest = Some(entry.key);
+                                Action::Run(load)
                             }
-                        } else {
-                            task.map_or(Action::None, Action::Run)
+                            None => self
+                                .open_latest(services, &entry.key)
+                                .unwrap_or(Action::None),
                         }
                     }
                     EntryKind::Parquet => Action::OpenTable(entry),
-                    EntryKind::Markdown => Action::OpenDocument(entry),
-                    EntryKind::Other => Action::None,
+                    _ => Action::None,
                 }
             }
         }
@@ -96,18 +113,22 @@ impl Browser {
         self.selected = Some(key.to_owned());
     }
 
-    /// Expand/collapse a folder; returns a load task if it is not loaded yet.
-    /// Version folders only ever expand when clicked.
-    fn toggle(
-        &mut self,
-        services: &Services,
-        prefix: String,
-        keep_open: bool,
-    ) -> Option<Task<Message>> {
-        if self.expanded.contains(&prefix) && !keep_open {
-            self.expanded.remove(&prefix);
+    /// If `prefix` (already loaded) contains versions, open the newest one.
+    fn open_latest(&mut self, services: &Services, prefix: &str) -> Option<Action> {
+        let Some(Folder::Loaded(listing)) = self.folders.get(prefix) else {
             return None;
-        }
+        };
+        let latest = listing.latest_version()?.key.clone();
+        self.selected = Some(latest.clone());
+        let load = self.expand(services, latest.clone());
+        Some(Action::OpenVersion {
+            prefix: latest,
+            load,
+        })
+    }
+
+    /// Expand a folder; returns a load task if it isn't loaded yet.
+    fn expand(&mut self, services: &Services, prefix: String) -> Option<Task<Message>> {
         self.expanded.insert(prefix.clone());
         match self.folders.get(&prefix) {
             Some(Folder::Loaded(_) | Folder::Loading) => None,
@@ -149,15 +170,9 @@ impl Browser {
         self.view_folder("", 0, &mut rows);
         column![
             header,
-            widgets::muted(
-                "Click a version (v1, v2, …) to read about it, or a table to explore it."
-            ),
-            scrollable(
-                column(rows)
-                    .spacing(1)
-                    .padding(iced::Padding::ZERO.right(10))
-            )
-            .height(Length::Fill),
+            widgets::muted("Click a dataset to see its latest version, or a table to explore it."),
+            scrollable(column(rows).spacing(1).padding(Padding::ZERO.right(10)))
+                .height(Length::Fill),
         ]
         .spacing(10)
         .padding(12)
@@ -165,15 +180,11 @@ impl Browser {
     }
 
     fn view_folder<'a>(&'a self, prefix: &str, depth: usize, out: &mut Vec<Element<'a, Message>>) {
-        let indent = depth as f32 * 16.0;
+        let indent = Padding::ZERO.left(depth as f32 * 16.0 + 22.0);
         match self.folders.get(prefix) {
             None => {}
             Some(Folder::Loading) => {
-                out.push(
-                    container(widgets::muted("Loading…"))
-                        .padding(iced::Padding::ZERO.left(indent + 22.0))
-                        .into(),
-                );
+                out.push(container(widgets::muted("Loading…")).padding(indent).into());
             }
             Some(Folder::Failed(e)) => {
                 out.push(
@@ -182,20 +193,25 @@ impl Browser {
                             .size(12)
                             .style(text::danger),
                     )
-                    .padding(iced::Padding::ZERO.left(indent + 22.0))
+                    .padding(indent)
                     .into(),
                 );
             }
             Some(Folder::Loaded(listing)) => {
-                if listing.entries.is_empty() {
+                let visible: Vec<&Entry> = listing
+                    .entries
+                    .iter()
+                    .filter(|e| e.kind.is_tree_visible())
+                    .collect();
+                if visible.is_empty() {
                     out.push(
-                        container(widgets::muted("(empty)"))
-                            .padding(iced::Padding::ZERO.left(indent + 22.0))
+                        container(widgets::muted("(no tables)"))
+                            .padding(indent)
                             .into(),
                     );
                 }
-                for entry in &listing.entries {
-                    out.push(self.view_entry(entry, indent));
+                for entry in visible {
+                    out.push(self.view_entry(entry, depth as f32 * 16.0));
                     if entry.kind.is_folder() && self.expanded.contains(&entry.key) {
                         self.view_folder(&entry.key, depth + 1, out);
                     }
@@ -205,18 +221,19 @@ impl Browser {
     }
 
     fn view_entry<'a>(&'a self, entry: &'a Entry, indent: f32) -> Element<'a, Message> {
-        let expanded = self.expanded.contains(&entry.key);
-        let (marker, label) = match entry.kind {
-            EntryKind::Folder | EntryKind::VersionFolder(_) => {
-                (if expanded { "▾" } else { "▸" }, entry.name.as_str())
+        let marker = match entry.kind {
+            _ if entry.kind.is_folder() => {
+                if self.expanded.contains(&entry.key) {
+                    "▾"
+                } else {
+                    "▸"
+                }
             }
-            EntryKind::Parquet => ("▦", entry.name.as_str()),
-            EntryKind::Markdown => ("¶", entry.name.as_str()),
-            EntryKind::Other => ("·", entry.name.as_str()),
+            _ => "▦",
         };
         let mut line = row![
             text(marker).width(16),
-            text(label).size(14).width(Length::Fill)
+            text(entry.name.as_str()).size(14).width(Length::Fill)
         ]
         .spacing(6)
         .align_y(iced::Alignment::Center);
@@ -227,16 +244,15 @@ impl Browser {
             line = line.push(widgets::muted(human_bytes(size)));
         }
         let selected = self.selected.as_deref() == Some(entry.key.as_str());
-        let clickable = !matches!(entry.kind, EntryKind::Other);
         button(line)
-            .padding(iced::Padding::from([3, 6]).left(indent + 6.0))
+            .padding(Padding::from([3, 6]).left(indent + 6.0))
             .width(Length::Fill)
             .style(if selected {
                 button::primary
             } else {
                 button::text
             })
-            .on_press_maybe(clickable.then(|| Message::Clicked(entry.clone())))
+            .on_press(Message::Clicked(entry.clone()))
             .into()
     }
 }

@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use iced::widget::{button, column, markdown, row, scrollable, table, text};
-use iced::{Element, Length, Task, Theme};
+use iced::widget::{button, column, container, row, scrollable, table, text};
+use iced::{Element, Length, Task};
 use surf_core::Entry;
 use surf_query::TableInfo;
 
@@ -22,7 +22,6 @@ pub enum Tab {
 pub enum Message {
     InfoLoaded(Result<Arc<TableInfo>, String>),
     Tab(Tab),
-    Link(markdown::Uri),
     DownloadFile,
     Query(query::Message),
 }
@@ -31,13 +30,11 @@ pub enum Action {
     None,
     Run(Task<Message>),
     Download(Request),
-    OpenUrl(String),
 }
 
 pub struct TableScreen {
     entry: Entry,
     info: Loadable<Arc<TableInfo>>,
-    maml: Vec<markdown::Item>,
     tab: Tab,
     query: Option<Query>,
 }
@@ -59,7 +56,6 @@ impl TableScreen {
         let screen = TableScreen {
             entry,
             info: Loadable::Loading,
-            maml: Vec::new(),
             tab: Tab::Overview,
             query: None,
         };
@@ -73,11 +69,6 @@ impl TableScreen {
     pub fn update(&mut self, services: &Services, message: Message) -> Action {
         match message {
             Message::InfoLoaded(Ok(info)) => {
-                self.maml = info
-                    .maml
-                    .as_deref()
-                    .map(|m| markdown::parse(m).collect())
-                    .unwrap_or_default();
                 self.query = Some(Query::new(info.clone()));
                 self.info = Loadable::Ready(info);
                 Action::None
@@ -96,7 +87,6 @@ impl TableScreen {
                     _ => Action::None,
                 }
             }
-            Message::Link(url) => Action::OpenUrl(url),
             Message::DownloadFile => Action::Download(Request::Object {
                 key: self.entry.key.clone(),
                 size: self.entry.size,
@@ -114,7 +104,7 @@ impl TableScreen {
         }
     }
 
-    pub fn view<'a>(&'a self, theme: &'a Theme) -> Element<'a, Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let tab_button = |label, tab| {
             button(text(label))
                 .style(if self.tab == tab {
@@ -143,7 +133,7 @@ impl TableScreen {
         let body: Element<'_, Message> = match (&self.info, self.tab) {
             (Loadable::Loading, _) => widgets::loading("table details"),
             (Loadable::Failed(e), _) => widgets::failed("this table", e),
-            (Loadable::Ready(info), Tab::Overview) => self.view_overview(info, theme),
+            (Loadable::Ready(info), Tab::Overview) => self.view_overview(info),
             (Loadable::Ready(_), Tab::Select) => match &self.query {
                 Some(q) => q.view().map(Message::Query),
                 None => widgets::loading("columns"),
@@ -157,7 +147,7 @@ impl TableScreen {
             .into()
     }
 
-    fn view_overview<'a>(&'a self, info: &'a TableInfo, theme: &'a Theme) -> Element<'a, Message> {
+    fn view_overview<'a>(&'a self, info: &'a TableInfo) -> Element<'a, Message> {
         let stats = row![
             widgets::stat("Rows", human_count(info.num_rows)),
             widgets::stat("Columns", human_count(info.columns.len() as u64)),
@@ -166,10 +156,12 @@ impl TableScreen {
         ]
         .spacing(40);
 
-        let metadata: Element<'_, Message> = if self.maml.is_empty() {
-            widgets::muted("This table has no embedded metadata (maml).")
-        } else {
-            markdown::view(&self.maml, theme).map(Message::Link)
+        // The maml is YAML; shown as-is for now (a structured view can come later).
+        let metadata: Element<'_, Message> = match &info.maml {
+            None => widgets::muted("This table has no embedded metadata (maml)."),
+            Some(yaml) => container(scrollable(widgets::yaml_view(yaml)))
+                .max_height(420)
+                .into(),
         };
 
         let schema = table(

@@ -1,7 +1,7 @@
 //! Small reusable view helpers.
 
-use iced::widget::{button, column, container, row, scrollable, space, table, text};
-use iced::{Element, Font, Length, font};
+use iced::widget::{button, column, container, markdown, row, scrollable, space, table, text};
+use iced::{Element, Font, Length, Theme, font};
 
 /// Something fetched asynchronously.
 #[derive(Debug, Clone, Default)]
@@ -75,6 +75,34 @@ pub fn card<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Element<'a, M> {
         .style(container::bordered_box)
         .width(Length::Fill)
         .into()
+}
+
+/// Rendered markdown with consistent, readable styling: comfortable text
+/// size, a clear heading scale, and a capped line length.
+pub fn markdown_view<'a>(
+    items: &'a [markdown::Item],
+    theme: &'a Theme,
+) -> Element<'a, markdown::Uri> {
+    let base = 15.0;
+    let settings = markdown::Settings {
+        h1_size: (base * 1.75).into(),
+        h2_size: (base * 1.45).into(),
+        h3_size: (base * 1.25).into(),
+        h4_size: (base * 1.1).into(),
+        code_size: (base * 0.9).into(),
+        spacing: (base * 1.1).into(),
+        ..markdown::Settings::with_text_size(base, theme)
+    };
+    container(container(markdown::view(items, settings)).max_width(880))
+        .padding([20, 28])
+        .style(container::bordered_box)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Plain YAML (or any preformatted text) in a monospace card.
+pub fn yaml_view<'a, M: 'a>(yaml: &'a str) -> Element<'a, M> {
+    card(text(yaml).font(MONO).size(13))
 }
 
 /// A grid of string cells, scrollable in both directions.

@@ -32,6 +32,7 @@ pub enum Message {
     Advanced(String),
     RunPreview,
     PreviewLoaded(u64, Result<Arc<Preview>, String>),
+    CountLoaded(u64, Result<u64, String>),
     Format(ExportFormat),
     DownloadSubset,
 }
@@ -48,6 +49,14 @@ struct FilterRow {
     op: Op,
     value: String,
     value2: String,
+}
+
+#[derive(Debug)]
+enum CountState {
+    Idle,
+    Counting,
+    Done(u64),
+    Failed(String),
 }
 
 #[derive(Debug, Default)]
@@ -68,6 +77,10 @@ pub struct Query {
     combinator: Combinator,
     advanced: String,
     preview: PreviewState,
+    /// Matching-row count, computed separately because it can be slow on
+    /// very large tables with filters.
+    count: CountState,
+    count_task: Option<iced::task::Handle>,
     /// Whether the selection changed since the last preview.
     stale: bool,
     /// Incremented for every preview request so late results are ignored.
@@ -87,6 +100,8 @@ impl Query {
             combinator: Combinator::And,
             advanced: String::new(),
             preview: PreviewState::NotRun,
+            count: CountState::Idle,
+            count_task: None,
             stale: false,
             generation: 0,
             format: ExportFormat::Parquet,
@@ -153,16 +168,36 @@ impl Query {
         let engine = services.engine.clone();
         let key = self.info.key.clone();
         let selection = self.selection();
-        Task::perform(
-            async move {
-                engine
-                    .preview(&key, &selection, PREVIEW_ROWS)
-                    .await
-                    .map(Arc::new)
-                    .map_err(|e| e.to_string())
+        let sample = Task::perform(
+            {
+                let (engine, key, selection) = (engine.clone(), key.clone(), selection.clone());
+                async move {
+                    engine
+                        .sample(&key, &selection, PREVIEW_ROWS)
+                        .await
+                        .map(Arc::new)
+                        .map_err(|e| e.to_string())
+                }
             },
             move |result| Message::PreviewLoaded(generation, result),
+        );
+        // A previous, possibly long-running count is no longer wanted.
+        if let Some(handle) = self.count_task.take() {
+            handle.abort();
+        }
+        self.count = CountState::Counting;
+        let (count, handle) = Task::perform(
+            async move {
+                engine
+                    .count(&key, &selection)
+                    .await
+                    .map_err(|e| e.to_string())
+            },
+            move |result| Message::CountLoaded(generation, result),
         )
+        .abortable();
+        self.count_task = Some(handle);
+        Task::batch([sample, count])
     }
 
     pub fn update(&mut self, services: &Services, message: Message) -> Action {
@@ -221,9 +256,19 @@ impl Query {
                 }
                 changed = false;
             }
+            Message::CountLoaded(generation, result) => {
+                if generation == self.generation {
+                    self.count_task = None;
+                    self.count = match result {
+                        Ok(n) => CountState::Done(n),
+                        Err(e) => CountState::Failed(e),
+                    };
+                }
+                changed = false;
+            }
             Message::DownloadSubset => {
-                let expected_rows = match (&self.preview, self.stale) {
-                    (PreviewState::Ready(p), false) => Some(p.matching_rows),
+                let expected_rows = match (&self.count, self.stale) {
+                    (CountState::Done(n), false) => Some(*n),
                     _ => None,
                 };
                 return Action::Download(Request::Subset {
@@ -421,15 +466,22 @@ impl Query {
             PreviewState::Loading => widgets::loading("preview"),
             PreviewState::Failed(e) => widgets::failed("the preview", e),
             PreviewState::Ready(p) => {
-                let total = self.info.num_rows;
+                let total = human_count(self.info.num_rows);
                 let shown = p.rows.len() as u64;
-                let mut summary = format!(
-                    "{} of {} rows match",
-                    human_count(p.matching_rows),
-                    human_count(total)
-                );
-                if shown < p.matching_rows {
+                let mut summary = match &self.count {
+                    CountState::Done(n) => format!("{} of {total} rows match", human_count(*n)),
+                    CountState::Counting => format!("Counting matching rows (of {total})…"),
+                    CountState::Failed(e) => format!("Couldn't count matching rows: {e}"),
+                    CountState::Idle => String::new(),
+                };
+                let more = match self.count {
+                    CountState::Done(n) => shown < n,
+                    _ => shown == PREVIEW_ROWS as u64,
+                };
+                if more {
                     summary.push_str(&format!(" · showing the first {}", human_count(shown)));
+                } else if shown == 0 {
+                    summary.push_str(" · no rows to show");
                 }
                 let mut header = row![text(summary).font(BOLD)].spacing(10);
                 if self.stale {

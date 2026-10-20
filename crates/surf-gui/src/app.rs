@@ -7,10 +7,10 @@ use iced::widget::{button, column, container, row, rule, text};
 use iced::{Element, Length, Task, Theme};
 use surf_core::{Entry, ExportFormat};
 
-use crate::screens::about::{self, About};
 use crate::screens::browser::{self, Browser};
 use crate::screens::downloads::{self, Downloads, Request};
 use crate::screens::table::{self, TableScreen};
+use crate::screens::version::{self, VersionScreen};
 use crate::services::Services;
 use crate::widgets::{self, BOLD};
 
@@ -19,7 +19,7 @@ pub enum Message {
     Browser(browser::Message),
     /// Screen messages carry the key of the screen they belong to, so results
     /// for a screen the user already left are dropped.
-    About(String, about::Message),
+    Version(String, version::Message),
     Table(String, table::Message),
     Downloads(downloads::Message),
     SaveTo(Request, Option<PathBuf>),
@@ -29,7 +29,7 @@ pub enum Message {
 
 enum Screen {
     Welcome,
-    About(About),
+    Version(VersionScreen),
     Table(Box<TableScreen>),
 }
 
@@ -73,7 +73,7 @@ impl App {
     pub fn title(&self) -> String {
         let place = match &self.screen {
             Screen::Welcome => None,
-            Screen::About(a) => Some(a.key().trim_end_matches('/')),
+            Screen::Version(v) => Some(v.key().trim_end_matches('/')),
             Screen::Table(t) => Some(t.key()),
         };
         match place {
@@ -103,31 +103,26 @@ impl App {
                     Task::batch([load, self.open_version(&services, prefix)])
                 }
                 browser::Action::OpenTable(entry) => self.open_table(&services, entry),
-                browser::Action::OpenDocument(entry) => {
-                    let (screen, task) = About::document(&services, entry.key.clone());
-                    self.screen = Screen::About(screen);
-                    task.map(move |m| Message::About(entry.key.clone(), m))
-                }
             },
-            Message::About(key, msg) => {
-                let Screen::About(screen) = &mut self.screen else {
+            Message::Version(key, msg) => {
+                let Screen::Version(screen) = &mut self.screen else {
                     return Task::none();
                 };
                 if screen.key() != key {
                     return Task::none();
                 }
                 match screen.update(&services, msg) {
-                    about::Action::None => Task::none(),
-                    about::Action::Run(t) => t.map(move |m| Message::About(key.clone(), m)),
-                    about::Action::OpenTable(entry) => {
+                    version::Action::None => Task::none(),
+                    version::Action::Run(t) => t.map(move |m| Message::Version(key.clone(), m)),
+                    version::Action::OpenTable(entry) => {
                         self.browser.select(&entry.key);
                         self.open_table(&services, entry)
                     }
-                    about::Action::Download(entry) => self.ask_where(Request::Object {
+                    version::Action::Download(entry) => self.ask_where(Request::Object {
                         key: entry.key,
                         size: entry.size,
                     }),
-                    about::Action::OpenUrl(url) => {
+                    version::Action::OpenUrl(url) => {
                         open_url(&url);
                         Task::none()
                     }
@@ -144,10 +139,6 @@ impl App {
                     table::Action::None => Task::none(),
                     table::Action::Run(t) => t.map(move |m| Message::Table(key.clone(), m)),
                     table::Action::Download(request) => self.ask_where(request),
-                    table::Action::OpenUrl(url) => {
-                        open_url(&url);
-                        Task::none()
-                    }
                 }
             }
             Message::Downloads(msg) => {
@@ -173,9 +164,9 @@ impl App {
     }
 
     fn open_version(&mut self, services: &Services, prefix: String) -> Task<Message> {
-        let (screen, task) = About::version(services, prefix.clone());
-        self.screen = Screen::About(screen);
-        task.map(move |m| Message::About(prefix.clone(), m))
+        let (screen, task) = VersionScreen::new(services, prefix.clone());
+        self.screen = Screen::Version(screen);
+        task.map(move |m| Message::Version(prefix.clone(), m))
     }
 
     fn open_table(&mut self, services: &Services, entry: Entry) -> Task<Message> {
@@ -234,13 +225,13 @@ impl App {
 
         let main: Element<'_, Message> = match &self.screen {
             Screen::Welcome => welcome(),
-            Screen::About(a) => {
+            Screen::Version(a) => {
                 let key = a.key().to_owned();
-                a.view(theme).map(move |m| Message::About(key.clone(), m))
+                a.view(theme).map(move |m| Message::Version(key.clone(), m))
             }
             Screen::Table(t) => {
                 let key = t.key().to_owned();
-                t.view(theme).map(move |m| Message::Table(key.clone(), m))
+                t.view().map(move |m| Message::Table(key.clone(), m))
             }
         };
 
