@@ -202,7 +202,7 @@ impl App {
             row![
                 image(assets::wave()).height(30),
                 text("Surf").size(20).font(BOLD),
-                text("WAVES data browser").size(13).color(logo::SKY),
+                text("WAVES RIP browser").size(13).color(logo::SKY),
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center),
