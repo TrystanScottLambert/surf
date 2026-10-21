@@ -14,6 +14,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# Values pasted into CI secrets often carry a trailing newline.
+for var in SURF_SIGN_IDENTITY SURF_NOTARY_APPLE_ID SURF_NOTARY_TEAM_ID SURF_NOTARY_PASSWORD; do
+  printf -v "$var" '%s' "$(printf '%s' "${!var:-}" | tr -d '\r\n')"
+done
+
 VERSION="$1"; shift
 APP=dist/Surf.app
 rm -rf "$APP" dist/Surf-macos-universal.zip
