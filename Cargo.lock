@@ -2950,6 +2950,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced_selection"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ab7ead659318b8eea8f864bafe96f761e244c32e11d55035b99dcf0c56ba757"
+dependencies = [
+ "iced_widget",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "iced_tiny_skia"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5720,6 +5730,7 @@ dependencies = [
  "directories",
  "futures",
  "iced",
+ "iced_selection",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",

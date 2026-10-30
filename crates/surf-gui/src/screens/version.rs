@@ -9,7 +9,7 @@ use surf_core::maml::{self, Maml};
 use surf_core::{Entry, EntryKind, Listing, parent_name};
 
 use crate::services::Services;
-use crate::widgets::{self, Loadable, human_bytes};
+use crate::widgets::{self, Loadable, human_bytes, selectable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -213,7 +213,7 @@ impl VersionScreen {
         {
             let mut summary = column![].spacing(4);
             if let Some(desc) = daml.get("description") {
-                summary = summary.push(text(desc).size(15));
+                summary = summary.push(selectable(desc).size(15));
             }
             let byline: Vec<String> = [("author", "By"), ("date", "Date"), ("license", "License")]
                 .iter()
@@ -233,7 +233,7 @@ impl VersionScreen {
         }
         let rows = tables.into_iter().map(|entry| {
             row![
-                text(entry.name.as_str()).size(15).width(Length::Fill),
+                selectable(entry.name.as_str()).size(15).width(Length::Fill),
                 widgets::muted(entry.size.map(human_bytes).unwrap_or_default()),
                 button(text("Explore")).on_press(Message::OpenTable(entry.clone())),
                 button(text("Download file"))

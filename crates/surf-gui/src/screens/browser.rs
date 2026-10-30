@@ -11,7 +11,7 @@ use iced::{Element, Length, Padding, Task};
 use surf_core::{Entry, EntryKind, Listing};
 
 use crate::services::Services;
-use crate::widgets::{self, BOLD, human_bytes};
+use crate::widgets::{self, BOLD, human_bytes, selectable, tint};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -156,7 +156,7 @@ impl Browser {
 
     pub fn view(&self, bucket_name: &str) -> Element<'_, Message> {
         let header = row![
-            text(bucket_name.to_owned())
+            selectable(bucket_name.to_owned())
                 .font(BOLD)
                 .size(16)
                 .width(Length::Fill),
@@ -189,9 +189,9 @@ impl Browser {
             Some(Folder::Failed(e)) => {
                 out.push(
                     container(
-                        text(format!("Couldn't load: {e}"))
+                        selectable(format!("Couldn't load: {e}"))
                             .size(12)
-                            .style(text::danger),
+                            .style(tint(text::danger)),
                     )
                     .padding(indent)
                     .into(),
@@ -231,6 +231,7 @@ impl Browser {
             }
             _ => "▦",
         };
+        let tag = |label: String| text(label).size(13).style(text::secondary);
         let mut line = row![
             text(marker).width(16),
             text(entry.name.as_str()).size(14).width(Length::Fill)
@@ -238,10 +239,10 @@ impl Browser {
         .spacing(6)
         .align_y(iced::Alignment::Center);
         if let EntryKind::VersionFolder(_) = entry.kind {
-            line = line.push(widgets::muted("version"));
+            line = line.push(tag("version".to_owned()));
         }
         if let (EntryKind::Parquet, Some(size)) = (entry.kind, entry.size) {
-            line = line.push(widgets::muted(human_bytes(size)));
+            line = line.push(tag(human_bytes(size)));
         }
         let selected = self.selected.as_deref() == Some(entry.key.as_str());
         button(line)

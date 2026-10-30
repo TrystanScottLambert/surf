@@ -19,6 +19,7 @@ surf-query = { path = "crates/surf-query" }
 datafusion = { version = "55", default-features = false, features = ["parquet", "sql", "nested_expressions"] }
 object_store = { version = "0.13", features = ["aws"] }
 iced = { version = "0.14", features = ["markdown", "highlighter", "image", "tokio", "advanced"] }
+iced_selection = { version = "0.5", features = ["markdown"] }
 rfd = "0.17"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
 futures = "0.3"

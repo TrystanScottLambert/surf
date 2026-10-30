@@ -6,6 +6,10 @@ use iced::widget::{
 use iced::{Element, Font, Length, Padding, Theme, font};
 use surf_core::maml::{self, FieldTable, Maml};
 
+/// Text the user can select with the mouse and copy with Cmd/Ctrl+C. Use it
+/// for anything worth copying, but never inside a button: it takes the click.
+pub use iced_selection::text as selectable;
+
 /// Something fetched asynchronously.
 #[derive(Debug, Clone, Default)]
 pub enum Loadable<T> {
@@ -21,16 +25,27 @@ pub const BOLD: Font = Font {
 };
 pub const MONO: Font = Font::MONOSPACE;
 
+/// Colour [`selectable`] text with one of `iced`'s text styles.
+pub fn tint(style: fn(&Theme) -> text::Style) -> impl Fn(&Theme) -> selectable::Style {
+    move |theme| selectable::Style {
+        color: style(theme).color,
+        ..selectable::default(theme)
+    }
+}
+
 pub fn heading<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
-    text(label).size(22).font(BOLD).into()
+    selectable(label).size(22).font(BOLD).into()
 }
 
 pub fn subheading<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
-    text(label).size(16).font(BOLD).into()
+    selectable(label).size(16).font(BOLD).into()
 }
 
 pub fn muted<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
-    text(label).size(13).style(text::secondary).into()
+    selectable(label)
+        .size(13)
+        .style(tint(text::secondary))
+        .into()
 }
 
 pub fn loading<'a, M: 'a>(what: &str) -> Element<'a, M> {
@@ -43,7 +58,7 @@ pub fn failed<'a, M: 'a>(what: &str, error: &str) -> Element<'a, M> {
     container(
         column![
             text(format!("Could not load {what}")).font(BOLD),
-            text(error.to_owned()).size(13)
+            selectable(error.to_owned()).size(13)
         ]
         .spacing(4),
     )
@@ -57,7 +72,7 @@ pub fn failed<'a, M: 'a>(what: &str, error: &str) -> Element<'a, M> {
 pub fn error_banner<'a, M: Clone + 'a>(message: &'a str, on_dismiss: M) -> Element<'a, M> {
     container(
         row![
-            text(message).width(Length::Fill),
+            selectable(message).width(Length::Fill),
             button(text("Dismiss"))
                 .style(button::secondary)
                 .on_press(on_dismiss)
@@ -96,7 +111,7 @@ pub fn markdown_view<'a>(
         spacing: (base * 1.1).into(),
         ..markdown::Settings::with_text_size(base, theme)
     };
-    container(container(markdown::view(items, settings)).max_width(880))
+    container(container(iced_selection::markdown(items, settings)).max_width(880))
         .padding([20, 28])
         .style(container::bordered_box)
         .width(Length::Fill)
@@ -105,14 +120,14 @@ pub fn markdown_view<'a>(
 
 /// Plain YAML (or any preformatted text) in a monospace card.
 pub fn yaml_view<'a, M: 'a>(yaml: &'a str) -> Element<'a, M> {
-    card(text(yaml).font(MONO).size(13))
+    card(selectable(yaml).font(MONO).size(13))
 }
 
 /// Top-level MAML/DAML entries as bold labels with their values.
 pub fn maml_summary<'a, M: 'a>(maml: &'a Maml) -> Element<'a, M> {
     let rows = maml.entries.iter().map(|(key, value)| {
         row![
-            text(maml::label(key)).font(BOLD).width(150),
+            selectable(maml::label(key)).font(BOLD).width(150),
             maml_value(value)
         ]
         .spacing(12)
@@ -125,7 +140,7 @@ pub fn maml_summary<'a, M: 'a>(maml: &'a Maml) -> Element<'a, M> {
 /// line, short lists joined with commas, longer lists one item per line.
 fn maml_value<'a, M: 'a>(value: &'a maml::Value) -> Element<'a, M> {
     use maml::Value;
-    let line = |s: String| -> Element<'a, M> { text(s).width(Length::Fill).into() };
+    let line = |s: String| -> Element<'a, M> { selectable(s).width(Length::Fill).into() };
     if let Some(t) = value.as_table() {
         return small_table(t);
     }
@@ -152,8 +167,8 @@ fn maml_value<'a, M: 'a>(value: &'a maml::Value) -> Element<'a, M> {
 fn small_table<'a, M: 'a>(t: FieldTable) -> Element<'a, M> {
     let columns = t.columns.iter().enumerate().map(|(i, name)| {
         table::column(
-            text(name.replace('_', " ")).font(BOLD).size(13),
-            move |r: Vec<String>| text(r[i].clone()).size(14),
+            selectable(name.replace('_', " ")).font(BOLD).size(13),
+            move |r: Vec<String>| selectable(r[i].clone()).size(14),
         )
     });
     table(columns, t.rows).padding_x(12).padding_y(4).into()
@@ -175,9 +190,9 @@ pub fn maml_fields<'a, M: Clone + 'a>(
 
     let columns = fields.columns.iter().enumerate().map(|(i, name)| {
         let col = table::column(
-            text(name.replace('_', " ")).font(BOLD).size(13),
+            selectable(name.replace('_', " ")).font(BOLD).size(13),
             move |r: &Vec<String>| {
-                let cell = text(r[i].as_str()).size(13);
+                let cell = selectable(r[i].as_str()).size(13);
                 if i == 0 { cell.font(MONO) } else { cell }
             },
         );
@@ -217,7 +232,7 @@ pub fn maml_fields<'a, M: Clone + 'a>(
 
 /// A label/value pair for stats rows.
 pub fn stat<'a, M: 'a>(label: &'a str, value: String) -> Element<'a, M> {
-    column![muted(label), text(value).size(18).font(BOLD)]
+    column![muted(label), selectable(value).size(18).font(BOLD)]
         .spacing(2)
         .into()
 }

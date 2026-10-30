@@ -13,7 +13,7 @@ use surf_query::TableInfo;
 
 use super::downloads::Request;
 use crate::services::Services;
-use crate::widgets::{self, human_count};
+use crate::widgets::{self, human_count, selectable, tint};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -381,8 +381,8 @@ impl Query {
         let ready = self.problem().is_none() && !self.checking;
         let mut content = column![
             widgets::subheading("Your selection"),
-            text(columns),
-            text(rows),
+            selectable(columns),
+            selectable(rows),
             widgets::muted(format!(
                 "The full table has {} rows ({}). Filtering happens while downloading, so only the data you asked for is saved.",
                 human_count(self.info.num_rows),
@@ -404,7 +404,7 @@ impl Query {
         ]
         .spacing(8);
         if let Some(p) = problem {
-            content = content.push(text(p).style(text::danger).size(13));
+            content = content.push(selectable(p).style(tint(text::danger)).size(13));
         }
         widgets::card(content)
     }

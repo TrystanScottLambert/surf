@@ -12,7 +12,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::services::Services;
-use crate::widgets::{self, BOLD, human_bytes, human_count};
+use crate::widgets::{self, BOLD, human_bytes, human_count, selectable, tint};
 
 /// Something the user asked to download.
 #[derive(Debug, Clone)]
@@ -263,16 +263,16 @@ impl Downloads {
                     Some(1.0),
                 ),
                 State::Failed(e) => (
-                    text(format!("Failed: {e}"))
+                    selectable(format!("Failed: {e}"))
                         .size(13)
-                        .style(text::danger)
+                        .style(tint(text::danger))
                         .into(),
                     None,
                 ),
                 State::Cancelled => (widgets::muted("Cancelled"), None),
             };
             let mut line = row![
-                column![text(name).font(BOLD).size(14), status]
+                column![selectable(name).font(BOLD).size(14), status]
                     .spacing(2)
                     .width(Length::Fill),
             ]

@@ -18,6 +18,7 @@ surf-credentials.workspace = true
 surf-storage.workspace = true
 surf-query.workspace = true
 iced.workspace = true
+iced_selection.workspace = true
 rfd.workspace = true
 tokio.workspace = true
 futures.workspace = true
