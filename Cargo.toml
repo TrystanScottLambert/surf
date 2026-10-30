@@ -1,9 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["crates/surf-core", "crates/surf-credentials", "crates/surf-storage", "crates/surf-query", "crates/surf-gui"]
+members = [
+  "crates/surf-core",
+  "crates/surf-credentials",
+  "crates/surf-storage",
+  "crates/surf-query",
+  "crates/surf-gui",
+]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 authors = ["Trystan Scott Lambert"]
@@ -16,12 +22,29 @@ surf-credentials = { path = "crates/surf-credentials" }
 surf-storage = { path = "crates/surf-storage" }
 surf-query = { path = "crates/surf-query" }
 
-datafusion = { version = "55", default-features = false, features = ["parquet", "sql", "nested_expressions"] }
+datafusion = { version = "55", default-features = false, features = [
+  "parquet",
+  "sql",
+  "nested_expressions",
+] }
 object_store = { version = "0.13", features = ["aws"] }
-iced = { version = "0.14", features = ["markdown", "highlighter", "image", "tokio", "advanced"] }
+iced = { version = "0.14", features = [
+  "markdown",
+  "highlighter",
+  "image",
+  "tokio",
+  "advanced",
+] }
 iced_selection = { version = "0.5", features = ["markdown"] }
 rfd = "0.17"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "fs",
+  "io-util",
+  "sync",
+  "time",
+] }
 futures = "0.3"
 bytes = "1"
 thiserror = "2"
